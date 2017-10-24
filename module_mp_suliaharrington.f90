@@ -1,12 +1,13 @@
 MODULE MODULE_MP_SULIAHARRINGTON
-  
+    
       IMPLICIT NONE
       
       REAL, PARAMETER :: PI = 3.1415926535897932384626434
       REAL, PARAMETER :: SQRTPI = 0.9189385332046727417803297
       
       REAL, PRIVATE ::  rhoi    !BULK DENSITY OF CLOUD ICE
-      REAL, PRIVATE ::  nu      !DISTRIBUTION SHAPE FACTOR
+      REAL, PRIVATE ::  nu      !DISTRIBUTION SHAPE FACTOR, ICE
+      REAL, PRIVATE ::  nus     !DISTRIBUTION SHAPE FACTOR, SNOW
       REAL, PRIVATE ::  nuc     !ICE NUCLEATION CONCENTRAION (#/L)
       REAL, PRIVATE ::  rd      !GAS CONSTANT OF DRY AIR
       REAL, PRIVATE ::  cp      !SPECIFIC HEAT FOR DRY AIR (CONST P)
@@ -36,7 +37,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       REAL, PRIVATE :: f1r      ! VENTILATION PARAMETER FOR RAIN
       REAL, PRIVATE :: f2r      ! " "
       REAL, PRIVATE :: ar       ! FALL SPEED PARAMETER FOR RAIN
-      REAL, PRIVATE :: as       ! FALL SPEED PARAMETER FOR SNOW
+      REAL, PRIVATE :: ans       ! FALL SPEED PARAMETER FOR SNOW
       REAL, PRIVATE :: rhosu    ! APPROXIMATE AIR DENSITY NEAR 850MB
       REAL, PRIVATE :: rhow     ! DENSITY OF LIQUID WATER
       REAL, PRIVATE :: br       ! FALLSPEED PARAMETER FOR RAIN
@@ -74,6 +75,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       rhoi = 920.
       !     rhoi = 500.
       nu = 4.
+      nus = 4.
       nuc = 1.
       rd = 287.15
       cp = 1005.
@@ -98,7 +100,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
 !     add constants for rain microphysics
       ar = 841.99667
-      as = 11.72
+      ans = 11.72
       rhosu = 85000./(287.15*273.15)
       rhow = 997.
       f1r = 0.78
@@ -138,32 +140,43 @@ MODULE MODULE_MP_SULIAHARRINGTON
     END SUBROUTINE SULIAHARRINGTON_INIT
 
 
-    SUBROUTINE mp_suliaharrington(   &
-         itimestep,th,qv,qc,qr,qi,qs,nc,nr,ni,ns,ai,ci,&
-         rho,pii,p,dt,dz,ht,w,icedep,icesub,rainevap &
-         ,snowevap,snowmelt,snowdep,snowsub,snowaccr,&
-         cloudcond,cloudevap,icemelt,icenuc,rainfrz,cloudfrz,&
-         phi,rhoice,relh &
-         ,ids, ide, jds, jde, kds, kde &
-         ,ims, ime, jms, jme, kms, kme &
-         , its, ite, jts, jte, kts, kte	&
+    SUBROUTINE mp_suliaharrington(           &
+         itimestep,th,                       &
+         qv,qc,qr,qi,qs,                     &
+         nc,nr,ni,ns,                        &
+         ai,ci,as,cs,                        &
+         rho,pii,p,dt,dz,ht,w,               &
+         icedep,icesub,rainevap,snowevap,    &
+         snowmelt,snowdep,snowsub,snowaccr,  &
+         cloudcond,cloudevap,icemelt,        &
+         icenuc,rainfrz,cloudfrz,            &
+         phi,rhoice,relh,cplx,phis,rhos,cplxs&
+         ,ids, ide, jds, jde, kds, kde       &
+         ,ims, ime, jms, jme, kms, kme       &
+         ,its, ite, jts, jte, kts, kte	     &
          )
       
       integer :: itimestep, i, j, k
       INTEGER, INTENT(IN) :: IDS,IDE,JDS,JDE,KDS,KDE,    &
            IMS,IME,JMS,JME,KMS,KME,ITS,ITE,JTS,JTE,KTS,KTE
-      REAL, DIMENSION(IMS:IME, KMS:KME, JMS:JME), INTENT(INOUT):: QV,TH !  &
+      REAL, DIMENSION(IMS:IME, KMS:KME, JMS:JME), INTENT(INOUT):: QV,TH 
       REAL, DIMENSION(IMS:IME, KMS:KME, JMS:JME) :: NC,QC,NR,QR,NI,QI,NS,QS        
-      REAL, DIMENSION(IMS:IME, KMS:KME, JMS:JME) :: ai, ci, rho, pii, p,dz,ht,w
-      REAL, DIMENSION(IMS:IME, KMS:KME, JMS:JME) :: icedep,icesub,rainevap &
-           ,snowevap,snowmelt,snowdep,snowsub,snowaccr,cloudcond,cloudevap,icemelt,&
-           icenuc,rainfrz,cloudfrz,phi,rhoice,relh
-      REAL, DIMENSION(its:ite, kts:kte) :: QV2D, QC2D, QR2D, QS2D, &
-           QI2D, NC2D, NR2D, NS2D, NI2D, AI2D, CI2D, T2D, RHO2D, P2D,   &
-           ICEDEP2D, ICESUB2D, RAINEVAP2D, SNOWEVAP2D, SNOWMELT2D,      &
-           SNOWDEP2D, SNOWSUB2D, SNOWACCR2D, CLOUDCOND2D, CLOUDEVAP2D,  &
-           ICEMELT2D, ICENUC2D, RAINFRZ2D, CLOUDFRZ2D, PHI2D, RHOICE2D, &
-           RELH2D
+      REAL, DIMENSION(IMS:IME, KMS:KME, JMS:JME) :: ai,ci,as,cs,rho,pii,p,dz,ht,w
+      
+      REAL, DIMENSION(IMS:IME, KMS:KME, JMS:JME) :: &
+           icedep,icesub,rainevap,snowevap,snowmelt,snowdep,snowsub,    &
+           snowaccr,cloudcond,cloudevap,icemelt,icenuc,rainfrz,cloudfrz,&
+           phi,rhoice,relh,cplx,phis,rhos,cplxs
+      
+      REAL, DIMENSION(its:ite, kts:kte) ::                            &
+           QV2D, QC2D, QR2D, QS2D, QI2D,                              &
+           NC2D, NR2D, NS2D, NI2D,                                    &
+           AI2D, CI2D, AS2D, CS2D,                                    &
+           T2D, RHO2D, P2D,                                           &
+           ICEDEP2D, ICESUB2D, RAINEVAP2D, SNOWEVAP2D, SNOWMELT2D,    &
+           SNOWDEP2D, SNOWSUB2D, SNOWACCR2D, CLOUDCOND2D, CLOUDEVAP2D,&
+           ICEMELT2D, ICENUC2D, RAINFRZ2D, CLOUDFRZ2D,                &
+           PHI2D, RHOICE2D, RELH2D, CPLX2D, PHIS2D, RHOS2D, CPLXS2D
       REAL, DIMENSION(its:ite, kts:kte, jts:jte) :: T
       REAL, DIMENSION(kts:kte) :: DZQ
       REAL :: dt
@@ -181,51 +194,53 @@ MODULE MODULE_MP_SULIAHARRINGTON
       DO j=jts,jte              !(east-west)
          DO i=its,ite           !(north-south)
             DO k=kts,kte        !(vertical)
+               
+               QV2D(i,k) = QV(i,k,j) !"QV"    "mixing ratio"                           "kg kg-1"
+               QC2D(i,k) = QC(i,k,j) !"QC"    "cloud water mixing ratio"               "kg kg-1"
+               QR2D(i,k) = QR(i,k,j) !"QR"    "rain water mixing ratio"                "kg kg-1"
+               QI2D(i,k) = QI(i,k,j) !"QI"    "cloud ice mixing ratio"                 "kg kg-1"
+               QS2D(i,k) = QS(i,k,j) !"QS"    "snow mixing ratio"                      "kg kg-1"
 
-               QV2D(i,k) = QV(i,k,j)
-               QC2D(i,k) = QC(i,k,j)
-               QR2D(i,k) = QR(i,k,j)
-               QI2D(i,k) = QI(i,k,j)
-               QS2D(i,k) = QS(i,k,j)
+               NC2D(i,k) = NC(i,k,j) !"cloud num mixing ratio"                          "# kg-1"
+               NR2D(i,k) = NR(i,k,j) !"rain num mixing ratio"                           "# kg-1"
+               NI2D(i,k) = NI(i,k,j) !"ice num mixing ratio"                            "# kg-1"
+               NS2D(i,k) = NS(i,k,j) !"snow num mixing ratio"                           "# kg-1"
+               AI2D(i,k) = AI(i,k,j) !"ice a-axis length-weighted volume mixing ratio"  "m3 kg-1"
+               CI2D(i,k) = CI(i,k,j) !"ice c-axis length-weighted volume mixing ratio"  "m3 kg-1"
+               AS2D(i,k) = AS(i,k,j) !"snow a-axis length-weighted volume mixing ratio" "m3 kg-1"
+               CS2D(i,k) = CS(i,k,j) !"snow c-axis length-weighted volume mixing ratio" "m3 kg-1"
+               T2D(i,k) = T(i,k,j)   !"temperature" "K"
 
-               NC2D(i,k) = NC(i,k,j)
-               NR2D(i,k) = NR(i,k,j)
-               NI2D(i,k) = NI(i,k,j)
-               NS2D(i,k) = NS(i,k,j)
-               AI2D(i,k) = AI(i,k,j)
-               CI2D(i,k) = CI(i,k,j)
+               ICEDEP2D(i,k) = ICEDEP(i,k,j)        !"ICE DEPOSITIONAL RATE MIXING RATIO" "kg kg-1s-1"
+               ICESUB2D(i,k) = ICESUB(i,k,j)        !"ICE SUBLIMATIONAL RATE MIXING RATIO" "kg kg-1s-1"
+               RAINEVAP2D(i,k) = RAINEVAP(i,k,j)    !"RAIN EVAPORATIONAL RATE MIXING RATIO" "kg kg-1s-1"
+               SNOWEVAP2D(i,k) = SNOWEVAP(i,k,j)    !"SNOW EVAP RATE MIX RATIO" "kg kg-1s-1"
+               SNOWMELT2D(i,k) = SNOWMELT(i,k,j)    !"CLOUD WATER MIXING RATIO FROM A CU SCHEME" "kg kg-1s-1"
+               SNOWDEP2D(i,k) = SNOWDEP(i,k,j)      !"SNOW DEP RATE MIXING RATIO" "kg kg-1s-1"
+               SNOWSUB2D(i,k) = SNOWSUB(i,k,j)      !"SNOW SUBLIMATION RATE MIX RATIO" "kg kg-1s-1"
+               SNOWACCR2D(i,k) = SNOWACCR(i,k,j)    !"ACCRET OF SNOW BY RAIN" "kg kg-1s-1"
+               CLOUDCOND2D(i,k) = CLOUDCOND(i,k,j)  !"CLOUD DROPLET CONDENSATION RATE MIX RATIO" "kg kg-1s-1"
+               CLOUDEVAP2D(i,k) = CLOUDEVAP(i,k,j)  !"CLOUD DROPLET EVAP RATE MIX RATIO" "kg kg-1s-1"
+               ICEMELT2D(i,k) = ICEMELT(i,k,j)      !"ICE MELTING RATE" "kg kg-1s-1"
+               ICENUC2D(i,k) = ICENUC(i,k,j)        !"ICENUC" "ICE HETERO NUC RATE (FREEZING)" "kg kg-1s-1"
+               RAINFRZ2D(i,k) = RAINFRZ(i,k,j)      !"RAINFRZ" "RAIN HOMOGENOUS FREEZING RATE" "kg kg-1s-1"
+               CLOUDFRZ2D(i,k) = CLOUDFRZ(i,k,j)    !"CLOUD DROPLET FREEZING RATE" "kg kg-1s-1"
+               P2D(i,k) = P(i,k,j)                  !"PRESSURE" "Pa"
+               RHO2D(i,k) = RHO(i,k,j)              !"AIR DENSITY "kg m-3"
+               DZQ(k) = DZ(i,k,j)                   !"LAYER DEPTH" "m"
 
-               T2D(i,k) = T(i,k,j)
-
-               ICEDEP2D(i,k) = ICEDEP(i,k,j)
-               ICESUB2D(i,k) = ICESUB(i,k,j)
-               RAINEVAP2D(i,k) = RAINEVAP(i,k,j)
-               SNOWEVAP2D(i,k) = SNOWEVAP(i,k,j)
-               SNOWMELT2D(i,k) = SNOWMELT(i,k,j)
-               SNOWDEP2D(i,k) = SNOWDEP(i,k,j)
-               SNOWSUB2D(i,k) = SNOWSUB(i,k,j)
-               SNOWACCR2D(i,k) = SNOWACCR(i,k,j)
-               CLOUDCOND2D(i,k) = CLOUDCOND(i,k,j)
-               CLOUDEVAP2D(i,k) = CLOUDEVAP(i,k,j)
-               ICEMELT2D(i,k) = ICEMELT(i,k,j)
-               ICENUC2D(i,k) = ICENUC(i,k,j)
-               RAINFRZ2D(i,k) = RAINFRZ(i,k,j)
-               CLOUDFRZ2D(i,k) = CLOUDFRZ(i,k,j)
-
-               P2D(i,k) = P(i,k,j)
-               RHO2D(i,k) = RHO(i,k,j)
-               DZQ(k) = DZ(i,k,j)
 
             END DO
          END DO
 
          CALL SULIAHARRINGTON_MICRO(T2D, DT, QV2D, QC2D, QR2D, QS2D, &
-              QI2D, NC2D, NR2D, NS2D, NI2D, AI2D, CI2D, P2D, RHO2D, DZQ,  &
+              QI2D, NC2D, NR2D, NS2D, NI2D, AI2D, CI2D, AS2D, CS2D, P2D,  &
+              RHO2D, DZQ,  &
               IMS, IME, JMS, JME, KMS, KME, ITS, ITE, JTS, JTE, KTS, KTE, &
               ITIMESTEP, ICEDEP2D, ICESUB2D, RAINEVAP2D, SNOWEVAP2D,      &
               SNOWMELT2D, SNOWDEP2D, SNOWSUB2D, SNOWACCR2D, CLOUDCOND2D,  &
               CLOUDEVAP2D, ICEMELT2D, ICENUC2D, RAINFRZ2D, CLOUDFRZ2D,    &
-              PHI2D, RHOICE2D, RELH2D)
+              PHI2D, RHOICE2D, RELH2D, CPLX2D,PHIS2D,RHOS2D,CPLXS2D)
 
          DO i=its,ite
             DO k=kts,kte
@@ -242,6 +257,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
                NS(i,k,j) = NS2D(i,k)
                AI(i,k,j) = AI2D(i,k)
                CI(i,k,j) = CI2D(i,k)
+               AS(i,k,j) = AS2D(i,k)
+               CS(i,k,j) = CS2D(i,k)
                T(i,k,j) = T2D(i,k)
                TH(i,k,j) = T(i,k,j)/PII(i,k,j)
 
@@ -263,6 +280,11 @@ MODULE MODULE_MP_SULIAHARRINGTON
                RHOICE(i,k,j) = RHOICE2D(i,k)
                RELH(i,k,j) = RELH2D(i,k)
                PHI(i,k,j) = PHI2D(i,k)
+               CPLX(i,k,j) = CPLX2D(i,k)
+
+               RHOS(i,k,j) = RHOS2D(i,k)
+               PHIS(i,k,j) = PHIS2D(i,k)
+               CPLXS(i,k,j) = CPLXS2D(i,k)
             END DO              !end k loop
          END DO
       END DO
@@ -271,11 +293,12 @@ MODULE MODULE_MP_SULIAHARRINGTON
     END SUBROUTINE mp_suliaharrington
     
     !*****************************************************************************
-    SUBROUTINE SULIAHARRINGTON_MICRO(t, dt, qv, qc, qr, qs, qi, nc,  &
-      nr, ns, ni, ai, ci, p, rho, dzq, ims, ime, jms, jme, kms, kme,   &
-      its, ite, jts, jte, kts, kte, itimestep,icedep, icesub, rainevap,&
-      snowevap, snowmelt, snowdep, snowsub, snowaccr, cloudcond,       &
-      cloudevap, icemelt, icenuc, rainfrz, cloudfrz, phi, rhoice, relh)
+    SUBROUTINE SULIAHARRINGTON_MICRO(t, dt, qv, qc, qr, qs, qi, nc,            &
+      nr, ns, ni, ai, ci, as, cs, p, rho, dzq, ims, ime, jms, jme, kms, kme,   &
+      its, ite, jts, jte, kts, kte, itimestep,icedep, icesub, rainevap,        &
+      snowevap, snowmelt, snowdep, snowsub, snowaccr, cloudcond,               &
+      cloudevap, icemelt, icenuc, rainfrz, cloudfrz, phi, rhoice, relh,        &
+      cplx, phis, rhos, cplxs)
 !****************************************************************************
 
       IMPLICIT NONE
@@ -286,23 +309,25 @@ MODULE MODULE_MP_SULIAHARRINGTON
       itimestep
 
       REAL, DIMENSION(its:ite,kts:kte),INTENT(INOUT) :: &
-      qv, qc, qr, qs, qi, nc, nr, ns, ni, ai, ci, t
+      qv, qc, qr, qs, qi, nc, nr, ns, ni, ai, ci, as, cs, t
  
       REAL, DIMENSION(its:ite,kts:kte), INTENT(OUT) :: &
       icedep, icesub, rainevap, snowevap, snowmelt, snowdep, snowsub,&
       snowaccr, cloudcond, cloudevap, icemelt, icenuc, rainfrz, cloudfrz
 
-      REAL, DIMENSION(its:ite,kts:kte), INTENT(OUT) :: rhoice,phi,relh
-
+      REAL, DIMENSION(its:ite,kts:kte), INTENT(OUT) :: &
+           rhoice,phi,relh,cplx,&
+           rhos,phis,cplxs
+      
       REAL, DIMENSION(its:ite,kts:kte), INTENT(IN) :: p, rho
       REAL, DIMENSION(kts:kte), INTENT(IN) :: dzq
       REAL, INTENT(IN) :: dt
 
 
-      INTEGER i, k, iflag, nstep, n, iaspect, ISDACflag, homofreeze,&
+      INTEGER i, k, iflag, nstep, n, iaspect, homofreeze, nuc_scheme, &
       masssizeflag, ipart, resupply, sphrflag, SEDON, RAINON,       &
       DSTRCHECKS, ICE_CALCS, EVOLVE_ON, snow_on, ice_start_time,    &
-      processes, LTRUE, CNUM, redden
+      processes, LTRUE, CNUM, redden, snowflag, agg_flag
 
 !     process rates: calculates changes due to nucleation,deposition,cond/evap
       REAL mnuccd               !change in qi freezing aerosol
@@ -325,7 +350,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       REAL nsmltr               !change in n melting snow to rain
       REAL prds, eprds          !change in q deposition/sublimation snow
       REAL nsubr, nsubs         !loss of nr,ns during evap,sub
-      REAL agg, nagg, nsagg, nragg
+      REAL agg, nagg, nsagg, nragg !change in q and n aggregation
       REAL nnew, prd1
 
 !     ice characteristics
@@ -341,6 +366,9 @@ MODULE MODULE_MP_SULIAHARRINGTON
       REAL alpham, alpha_v, beta_v, alpha_a, beta_a, lmean, cap
       REAL qt_adv, qt_sed, qi_frac, qiold, niold
       REAL*8 sui, sup, qvqvs, qvqvsi
+
+      !snow characteristics
+      REAL ans, cns
 
       REAL lammin, lammax, lamc, pgam
 
@@ -398,23 +426,22 @@ MODULE MODULE_MP_SULIAHARRINGTON
 !     1 for RAMS plates and columns (Walko et al., 1995)
 !     2 for Mitchell's mass relations (hex plates, columns)
 !     3 for Mitchell's mass relations (stellars, columns)
-!     4 for Wood's (2007) mass-size relations
+      !     4 for Wood's (2007) mass-size relations
+      nuc_scheme = 0
       iaspect    = 0            !set constant aspect ratio (sensitivity study)
-      ISDACflag  = 0            !test for ISDAC intercomparison
       sphrflag   = 0            !all ice assumed spheres
       redden = 0
       homofreeze = 1            !homogeneous freezing
       snow_on    = 1            !ice --> snow & aggregation
       SEDON      = 1            !sedimentation
       EVOLVE_ON  = 1            !depositional growth
-      RAINON     = 1            !rain processes
+      RAINON     = 0            !rain processes
       ICE_CALCS  = 1            !all ice calculations
       ice_start_time = 0.!60.*60.*4.0 !time to begin ice nucleation & homogeneous freezing
       LTRUE = 0
       CNUM = 0                  !0 for constant droplet number
-      processes =1
-      IF(ISDACflag .EQ. 1) homofreeze=0
-      IF(ISDACflag .eq. 1) rhoi = 88.4
+      processes = 1
+
       IF(sphrflag  .eq. 1) rhoi = 920.
       If(redden .eq. 1) rhoi = 500.
   
@@ -429,6 +456,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       DO i = its,ite
          DO k = kts,kte
+
+            !ICE
             IF(qi(i,k).gt.qsmall.and.ni(i,k).gt.qsmall)THEN
                ni(i,k) = max(ni(i,k),qsmall)
                ai(i,k) = max(ai(i,k),qsmall)
@@ -438,25 +467,47 @@ MODULE MODULE_MP_SULIAHARRINGTON
                cni = ((ci(i,k)**2)/(ai(i,k)*nu*ni(i,k)))**(1./3.)
                ai(i,k) = nu*ni(i,k)*ani
                ci(i,k) = nu*ni(i,k)*cni
-
+            ELSE               
+               qi(i,k)=0.
+               ni(i,k)=0.
+               ai(i,k)=0.
+               ci(i,k)=0.
             END IF
-
+            
+            !CLOUD WATER
             IF(qc(i,k).lt.qsmall)THEN
                qc(i,k) = 0.
                nc(i,k) = 0.
             END IF
+
+            !RAIN WATER
             IF(qr(i,k).lt.qsmall)THEN
                qr(i,k) = 0.
                nr(i,k) = 0.
             END IF
-            IF(qs(i,k).lt.qsmall)THEN
+
+            !SNOW (AGGREGATES)
+
+            IF(snowflag .eq. 2.and.qs(i,k).gt.qsmall.and.ns(i,k).gt.qsmall)THEN
+               ns(i,k) = max(ns(i,k),qsmall)
+               as(i,k) = max(as(i,k),qsmall)
+               cs(i,k) = max(cs(i,k),qsmall)
+               
+               ans = ((as(i,k)**2)/(cs(i,k)*nus*ns(i,k)))**(1./3.)
+               cns = ((cs(i,k)**2)/(as(i,k)*nus*ns(i,k)))**(1./3.)
+               as(i,k) = nus*ns(i,k)*ans
+               cs(i,k) = nus*ns(i,k)*cns
+            ELSE
                qs(i,k) = 0.
                ns(i,k) = 0.
+               as(i,k) = 0.
+               cs(i,k) = 0.
             END IF
+
             
 !     set droplet concentration (units of kg-1)
             IF(CNUM.eq.0)THEN
-               nc(i,k)=300.e6/rho(i,k)
+               nc(i,k)=200.e6/rho(i,k)
             END IF
 
             !     initialize process rates
@@ -513,16 +564,11 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
             thetal(k)=0.0
             dthl(k)=0.0
-            !falloutICE(i,k) = 0.0
-            !falloutL(i,k) = 0.0
-            !sedm_l(i,k) = 0.0
-            !sedm_i(i,k) = 0.0
 
 !     initialize ice characteristics in case first time ice nucleation
 
             deltastr = 1.
             rhobar = 920.
-            IF(ISDACflag .eq. 1) rhobar = 88.4
             If(redden .eq. 1) rhoi = 500.
             temp = t(i,k)
             celsius = temp-273.15
@@ -566,7 +612,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 !     "a" parameter for cloud droplet fallspeed, based on Stokes Law
             acn(k) = g*rhow/(18.*mu)
 !     "a" parameter for snow fall speed
-            asn(k) = (rhosu/rho(i,k))**0.54*as
+            asn(k) = (rhosu/rho(i,k))**0.54*ans
 
             IF(qc(i,k).lt.qsmall.and.qi(i,k).lt.qsmall.and.&
                qs(i,k).lt.qsmall.and.qr(i,k).lt.qsmall)THEN
@@ -581,7 +627,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
             nr(i,k) = max(0.,nr(i,k))
             nc(i,k) = max(0.,nc(i,k))
             ns(i,k) = max(0.,ns(i,k))
-            IF(RAINON) THEN
+            IF(RAINON.eq.1) THEN
             IF(qr(i,k).ge.qsmall)THEN
                lamr = (pi*rhow*nr(i,k)/qr(i,k))**0.3333
                n0rr = nr(i,k)*lamr
@@ -644,7 +690,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                  
             IF(temp.ge.273.15)THEN
                !     autoconversion of cloud liquid water to rain
-               IF(RAINON)THEN
+               IF(RAINON.eq.1)THEN
                IF(qc(i,k).ge.1.E-6)THEN
 !     formula from khairoutdinov and kogan 2000, mwr
                   prc=1350.*qc(i,k)**2.47*(nc(i,k)/1.e6*&
@@ -754,7 +800,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                END IF
 
             ELSE !temp
-               IF (RAINON)THEN
+               IF (RAINON.eq.1)THEN
 !     autoconversion of cloud liquid water to rain
                IF(qc(i,k).ge.1.E-6)THEN
 !     formula from khairoutdinov and kogan 2000, mwr
@@ -876,149 +922,15 @@ MODULE MODULE_MP_SULIAHARRINGTON
                
                ani = ai(i,k)/(nu*ni(i,k))
                cni = ci(i,k)/(nu*ni(i,k))
-               
-!     get deltastr from cni and ani
-!     deltastr = 1 for ice particles pre-diagnosed as spheres
-               
-               IF((log(ani)-log(ao)).gt. 0.01 &
-                  .and.(log(cni)-log(ao)).gt.0.001)THEN
-                  deltastr = (log(cni)-log(ao))/(log(ani)-log(ao))
-               ELSE
-                  deltastr = 1.
-               ENDIF
-               IF(ISDACflag .eq. 1)deltastr = 1.0
-               IF(iaspect .eq. 1) deltastr = 0.8
-               IF(masssizeflag .eq. 1) deltastr=1.0
-               IF(sphrflag .eq. 1) deltastr = 1.0  
-!     make sure deltastr within reasonable limits
-!     IF(deltastr.lt.0.7)THEN
-               
-!     deltastr = 0.7
-!     cni=ao**(1.-deltastr)*ani**deltastr
-!     ci(i,k)=nu*ni(i,k)*cni
-               
-!     ELSE IF (deltastr.gt.1.5)THEN
-               
-!     deltastr=1.5
-!     cni=ao**(1.-deltastr)*ani**deltastr
-!     ci(i,k)=nu*ni(i,k)*cni
-               
-!     END IF
-               
-               if(deltastr.lt.0.55) then
-                  voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
-                  (exp(gammln(NU+deltastr+2.)))/gammnu
-                  deltastr=0.55
-                  ani=((3.*voltmp*gammnu)/ &
-                  (4.*pi*ao**(1.-deltastr)*(exp(gammln(NU+deltastr+2.)))))** &
-                  (1./(2.+deltastr))
-                  ai(i,k)=max((NU*ni(i,k)*ani),1.e-20)
-                  ani=ai(i,k)/(NU*ni(i,k))
-               else if (deltastr.gt.1.5) then
-                  voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
-                  (exp(gammln(NU+deltastr+2.)))/gammnu
-                  deltastr=1.5
-                  ani=((3.*voltmp*gammnu)/ &
-                  (4.*pi*ao**(1.-deltastr)*(exp(gammln(NU+deltastr+2.)))))** &
-                  (1./(2.+deltastr))
-                  ai(i,k)=max((NU*ni(i,k)*ani),1.e-20)
-                  ani=ai(i,k)/(NU*ni(i,k))
-                  cni=ao**(1.-deltastr)*ani**deltastr
-                  ci(i,k)=max((NU*ni(i,k)*cni),1.e-20)
-                  cni=ci(i,k)/(nu*ni(i,k))
-               endif
-               
-               betam = 2.+deltastr
-               alphstr = ao**(1.-deltastr)
-               alphv = (4./3.)*pi*alphstr
-               
-!     get avg ice density 
-               
-               rhobar = qi(i,k)*gammnu/(ni(i,k)*alphv* &
-               ani**betam*exp(gammln(nu+betam)))
-               
-               IF(ISDACflag .eq. 1) rhobar = 88.4
-               IF(masssizeflag .eq. 1.or.sphrflag.eq.2) rhobar = 920.
-               If(redden .eq. 1) rhoi = 500.
 
-!     rhobar=500.
-!     check bounds for ice density
-               IF(rhobar.gt.920.)THEN 
-                  
-                  rhobar=920.
-                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
-                  exp(gammln(nu+betam))))**(1./betam)
-                  cni=ao**(1.-deltastr)*ani**deltastr
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
-                  
-               ELSE IF(rhobar.lt.50.)THEN
-
-                  rhobar=50.
-                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
-                  exp(gammln(nu+betam))))**(1./betam)
-                  cni=ao**(1.-deltastr)*ani**deltastr
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
-                  
-               END IF
-!     get rni (characteristic equivalent volume ice radius)
-
-
-               rni = (qi(i,k)*3./(ni(i,k)*rhobar*4.*pi*&
-               (exp(gammln(nu+deltastr+2.))/gammnu)))**0.33333
-
-               IF(masssizeflag .eq. 1)THEN
-                  rni=ani
-                  IF(cni.gt.ani)rni=cni
-               ENDIF
                
-!     make sure rni is within reasonable bounds,
-               
-               IF(rni.lt.2.e-6)THEN
-                  
-                  rni=2.e-6
-                  ni(i,k)=3.*qi(i,k)*gammnu/(4.*pi*rhobar*rni**3.*&
-                  (exp(gammln(nu+deltastr+2.))))
-                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv* &
-                  exp(gammln(nu+betam))))**(1./betam) 
-!                  IF(masssizeflag .eq. 1)THEN
-!                     IF(ani.ge.cni)ani=rni
-!                     IF(cni.gt.ani)cni=rni
-!                     betam=betamp
-!                     ni(i,k)=(qi(i,k)*exp(gammln(nu+betam)))/&
-!                     (rni**betam*alphamsp*gammnu)
-!                     IF(ani.ge.cni)cni=ao**(1.-deltastr)*ani**deltastr
-!                     IF(cni.gt.ani)ani=ao**(deltastr-1.)*cni**&
-!                     (1./deltastr)
-!                  ELSE
-                     cni=ao**(1.-deltastr)*ani**deltastr
-!                  ENDIF
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
-                  
-               ELSE IF(rni.gt.2.e-3)THEN
-                  
-                  rni=2.e-3
-                  ni(i,k)=3.*qi(i,k)*gammnu/(4.*pi*rhobar*rni**3.* &
-                  (exp(gammln(nu+deltastr+2.))))
-                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv* &
-                  exp(gammln(nu+betam))))**(1./betam)
-!                  IF(masssizeflag .eq. 1)THEN
-!                     IF(ani.ge.cni)ani=rni
-!                     IF(cni.gt.ani)cni=rni
-!                     betam=betamp
-!                     ni(i,k)=(qi(i,k)*exp(gammln(nu+betam)))/&
-!                     (rni**betam*alphamsp*gammnu)
-!                     IF(ani.ge.cni)cni=ao**(1.-deltastr)*ani**deltastr
-!                     IF(cni.gt.ani)ani=ao**(deltastr-1.)*ani**&
-!                     (1./deltastr)
-!                  ELSE
-                     cni=ao**(1.-deltastr)*ani**deltastr
-!                  END IF
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
-               END IF  
+               !check that deltastr, rhobar, and rni are within reasonable bounds
+               CALL ICE_CHECKS(ni(i,k),qi(i,k),ani,cni,rni,deltastr,rhobar,&
+                    iaspect,masssizeflag,sphrflag,redden,betam,alphstr,alphv)
+
+               ci(i,k)=nu*ni(i,k)*cni
+               ai(i,k)=nu*ni(i,k)*ani
+
                
 !     get iwc to calculate iwc tendency
 !     by substracting final and initial values
@@ -1042,7 +954,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
                END IF
 
                IF(iaspect .eq. 1) igr = .27
-               IF(ISDACflag .eq. 1) igr = 1.0
                IF(sphrflag .eq. 1) igr=1.0
                If(redden .eq. 1) rhoi = 500.
 !     calculate number concentration from number mixing ratio
@@ -1054,7 +965,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   CALL EVOLVE(ani,nidum,sui,sup,qvv,temp,press,igr,dt,iwcf,&
                   cnf,iwci,phii,phif,cni,rni,rnf,anf,deltastr,mu,&
                   rhobar,vtbarb,vtbarbm,alphstr,vtbarblen,rhoa,i,k,iaspect&
-                  ,ISDACflag,masssizeflag,ipart,sphrflag,redden,itimestep) 
+                  ,masssizeflag,ipart,sphrflag,redden,itimestep) 
                   
                   betam = deltastr + 2.0
                   alphstr = ao**(1.-deltastr)
@@ -1070,30 +981,25 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   crd=(cnf-cni)*nu*ni(i,k)/dt 
                END IF           !EVOLVE_ON
             END IF              !ice is present
+            
 !     get ice nucleation 
             IF(temp.lt.268.15 .and.sui.ge.0.05)THEN
-               IF(REAL(itimestep)*dt.gt.ice_start_time)THEN !.and.& 
-!qc(i,k).gt.1.e-7)THEN
-                  
-                  IF(ISDACflag .eq. 0)THEN
-!     MEYERS Nucleation                  
-                     dum = nuc*1000./rho(i,k) !1/L*1000/rho ~ 1000/kg
-!     dum=exp(-0.639+0.1296*100.*sui)*nuc*1000./rho(i,k) 
-!     set maximum possible ice # to 100 L-1 (dum[=]kg-1 and convert to m-3 - KJS)
-!     dum=min(dum,nuc*1000./rho(i,k)) 
-                     IF(ni(i,k).lt.dum)THEN
-                        nnuccd=(dum-ni(i,k))/dt
-                     END IF
+               IF(REAL(itimestep)*dt.gt.ice_start_time)THEN 
+                  IF(nuc_scheme.eq.1)THEN !MEYERS + VAN DEN HEEVER
+
+                     dum=exp(-0.639+0.1296*100.*sui)*nuc*1000./rho(i,k) 
+                     !set maximum possible ice # to 100 L-1 (dum[=]kg-1 and convert to m-3 - KJS)
+                     dum=min(dum,nuc*1000./rho(i,k))
                      
-                  ELSE IF(ISDACflag .eq. 1) THEN
+                  ELSE IF(nuc_scheme.eq.2)THEN !DEMOTT
+                  ELSE!SIMPLE
                      dum = nuc*1000./rho(i,k) !1/L*1000/rho ~ 1000/kg
-                     mi0 = 4./3.*pi*88.4*(5.e-6)**3
-                     nnuccd = max(0.0,(dum-ni(i,k))/dt)
-                  ENDIF
+                     IF(ni(i,k).lt.dum) nnuccd=(dum-ni(i,k))/dt
+                  END IF
                   
                   mnuccd = nnuccd*mi0
-               END IF
-            END IF
+               END IF!ice start time
+            END IF!temp and sui
             
 !     make sure doesn't push into subsat or supersat
             
@@ -1154,41 +1060,16 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   betam=2.+deltastr   
                   
                   ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
-                  exp(gammln(nu+betam))))**(1./betam)
-!                  IF(masssizeflag .eq. 1)THEN
-!                     betam=betamp
-!                     ani=((qi(i,k)*gammnu)/(ni(i,k)*alphamsp*&
-!                     exp(gammln(nu+betam))))**(1./betam)
-!                  END IF
+                       exp(gammln(nu+betam))))**(1./betam)
+                  
                   cni=ao**(1.-deltastr)*ani**deltastr
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
                END IF           ! iflag = 1
 
-               rni = (qi(i,k)*3./(ni(i,k)*rhobar*4.*pi*&
-               (exp(gammln(nu+deltastr+2.))/gammnu)))**0.33333
-!     make sure rni is within reasonable bounds,
+               CALL R_CHECK(qi(i,k),ni(i,k),cni,ani,rni,rhobar,deltastr,masssizeflag,&
+                    betam,alphstr,alphv)
                
-               IF(rni.lt.2.e-6)THEN
-                  
-                  rni=2.e-6
-                  ni(i,k)=3.*qi(i,k)*gammnu/(4.*pi*rhobar*rni**3*&
-                  (exp(gammln(nu+deltastr+2.))))
-                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv* &
-                  exp(gammln(nu+betam))))**(1./betam) 
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
-                  
-               ELSE IF(rni.gt.2.e-3)THEN
-                  
-                  rni=2.e-3
-                  ni(i,k)=3.*qi(i,k)*gammnu/(4.*pi*rhobar*rni**3* &
-                  (exp(gammln(nu+deltastr+2.))))
-                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv* &
-                  exp(gammln(nu+betam))))**(1./betam)
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
-               END IF  
+               ci(i,k)=nu*ni(i,k)*cni
+               ai(i,k)=nu*ni(i,k)*ani
             END IF              ! q > qsmall
             
             betam=2.+deltastr
@@ -1280,96 +1161,12 @@ MODULE MODULE_MP_SULIAHARRINGTON
                ani=ai(i,k)/(nu*ni(i,k))
                cni=ci(i,k)/(nu*ni(i,k))
 
-!     get deltastr from ci and ai
-
-               IF((log(ani)-log(ao)).gt. 0.01 .and.&
-                  (log(cni)-log(ao)).gt.0.001)THEN
-                  deltastr = (log(cni)-log(ao))/(log(ani)-log(ao))
-
-               ELSE
-                  deltastr = 1.
-               ENDIF
-
-               IF(ISDACflag .eq. 1 .or.masssizeflag .eq. 1 .or. &
-               sphrflag .eq. 1) deltastr = 1.0
-               IF(iaspect .eq. 1) deltastr = 0.8
-
-
-!     make sure deltastr is in reasonable limits
-!     if adjustment is needed, keep ai the same, adjust ci
-               
-!              IF(deltastr.lt.0.7)THEN
-!                  deltastr=0.7           
-!                  cni=ao**(1.-deltastr)*ani**deltastr
-!                  ci(i,k)=nu*ni(i,k)*cni
-
-!               ELSE IF(deltastr.gt.1.3)THEN
-                  
-!                  deltastr=1.3
-!                  cni=ao**(1.-deltastr)*ani**deltastr
-!                  ci(i,k)=nu*ni(i,k)*cni
-                  
-!               END IF
-
-              if(deltastr.lt.0.55) then
-                 voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
-                 (exp(gammln(NU+deltastr+2.)))/gammnu
-                 deltastr=0.55
-                 ani=((3.*voltmp*gammnu)/ &
-                      (4.*pi*ao**(1.-deltastr)*(exp(gammln(NU+deltastr+2.)))))** &
-                      (1./(2.+deltastr))
-                 ai(i,k)=max((NU*ni(i,k)*ani),1.e-20)
-                 ani=ai(i,k)/(NU*ni(i,k))
-              else if (deltastr.gt.1.5) then
-                 voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
-                       (exp(gammln(NU+deltastr+2.)))/gammnu
-                 deltastr=1.5
-                 ani=((3.*voltmp*gammnu)/ &
-                     (4.*pi*ao**(1.-deltastr)*(exp(gammln(NU+deltastr+2.)))))** &
-                     (1./(2.+deltastr))
-                 ai(i,k)=max((NU*ni(i,k)*ani),1.e-20)
-                 ani=ai(i,k)/(NU*ni(i,k))
-                 cni=ao**(1.-deltastr)*ani**deltastr
-                 ci(i,k)=max((NU*ni(i,k)*cni),1.e-20)
-                 cni=ci(i,k)/(nu*ni(i,k))
-              endif
-
-               betam=2.+deltastr
-               alphstr=ao**(1.-deltastr)
-               alphv=4./3.*pi*alphstr              
-               
-!     get avg ice density
-               rhobar = qi(i,k)*gammnu/(ni(i,k)*alphv* &
-               ani**betam*exp(gammln(nu+betam)))
-
-               IF(ISDACflag .eq. 1) rhobar = 88.4
-               IF(masssizeflag .eq. 1) rhobar = 920.
-               IF(sphrflag .eq. 1) rhobar = 920.
-               If(redden .eq. 1) rhoi = 500.
-!     check to make sure ice density in bounds
-!     if necessary adjust ani, then we also need to recalculate cni,
-!     assuming the same deltastr
-
-               IF(rhobar.gt.920.)THEN
-
-                  rhobar=920.
-                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
-                  exp(gammln(nu+betam))))**(1./betam)
-                  cni=ao**(1.-deltastr)*ani**deltastr
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
-
-               ELSE IF(rhobar.lt.50.)THEN
-
-                  rhobar=50.
-                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
-                  exp(gammln(nu+betam))))**(1./betam)
-                  cni=ao**(1.-deltastr)*ani**deltastr
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
-                  
-               END IF
-!     get rni
+               CALL DSTR_CHECK(ni(i,k),ani,cni,deltastr,iaspect,masssizeflag,sphrflag)
+               CALL RHO_CHECK(deltastr,qi(i,k),ni(i,k),ani,cni,masssizeflag,sphrflag,redden,&
+                    betam,alphstr,alphv)
+               ci(i,k)=nu*ni(i,k)*cni
+               ai(i,k)=nu*ni(i,k)*ani
+         
 
             END IF ! qi > qsmall
 
@@ -1445,7 +1242,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
                rhobar=920.
             END IF
             IF(iaspect .eq. 1) phii = 0.27
-            IF(ISDACflag .eq. 1) rhobar=88.4 
             IF(masssizeflag .eq. 1) rhobar=920.
             IF(sphrflag .eq. 1) rhobar =920.
             If(redden .eq. 1) rhoi = 500.
@@ -1516,7 +1312,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   ai(i,k)=0.
                   ci(i,k)=0.
                   icemelt(i,k) = qi(i,k)/dt
-                  print*,'melt all ice',t(i,k),pcc*xxlv/cpm*dt,(xxlv*pre+(evpms+prds+eprds)*xxls+&
+                  print*,'melt all ice',itimestep,t(i,k),pcc*xxlv/cpm*dt,(xxlv*pre+(evpms+prds+eprds)*xxls+&
                    (psmlt-pracs)*xxlf)*dt/cpm,((prd+mnuccd)*xxls/cpm*dt)
                END IF
                IF(qs(i,k).ge.qsmall)THEN
@@ -1962,13 +1758,13 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       SUBROUTINE EVOLVE(ani,ni,sui,sup,qvv,temp,press,igr,deltt,iwc,cf,&
           iwci,phii,phif,cni,rni,rnf,anf,deltastr,mu,rhoavg,vtbarb,&
-          vtbarbm,alphstr,vtbarblen,rhoa,i,k,iaspect,ISDACflag,&
+          vtbarbm,alphstr,vtbarblen,rhoa,i,k,iaspect,&
           masssizeflag,ipart,sphrflag,redden,itimestep)
 !***********************************************************************
 
       IMPLICIT NONE
 
-      INTEGER ipart,ivent,i,k,iaspect,ISDACflag,redden,masssizeflag
+      INTEGER ipart,ivent,i,k,iaspect,redden,masssizeflag
       INTEGER sphrflag,itimestep,MICRO_ON
       REAL ani,ni,temp,press,qvv
       REAL igr,gi,capgam,dmdt,deltt,qe
@@ -1994,7 +1790,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
       bm1 = 3.0
 
       ivent=1
-      IF(ISDACflag .EQ. 1) ivent=0
       grav = 9.81
       celsius = temp-273.15
       fv = 1.0
@@ -2018,7 +1813,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
       gammnubet=exp(gammln(nu+betam))
 
       capgam = capacitance_gamma(l,deltastr,nu,alphstr)
-      IF(ISDACflag .EQ. 1) capgam=capgam*2./pi
       lmean = l*nu
 
       cap = 0.
@@ -2178,12 +1972,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
          * wghtv3
       endif
       
-      IF(ISDACflag .eq. 1)THEN
-         vtbarb = cv*ani**bv*exp(gammln(nu+bv))/gammnu
-         vtbarbm = cv*ani**bv*exp(gammln(nu+bv+1.))/exp(gammln(nu+1.))
-         vtbarblen = cv*ani**bv*exp(gammln(nu+bv+bm1))/&
-         exp(gammln(nu+bm1))
-      END IF
       
       IF(masssizeflag .EQ. 1)THEN
          vtbarb = alpha_v*2.**beta_v*l**beta_v*&
@@ -2286,7 +2074,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
       endif
 
 
-      IF(ISDACflag.eq.1) rhodep = 88.4
       IF(masssizeflag .eq. 1.or.sphrflag.eq.1) rhodep=920.
       If(redden .eq. 1) rhodep = 500.
       !rhodep=500.
@@ -2303,7 +2090,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
       rhoavg = rhoavg*(vi/vf) + rhodep*(1.-vi/vf) ! new average ice density
       rhoavg = max(min(rhoavg,920.),50.)
 
-      IF(ISDACflag .eq.1) rhoavg = 88.4
       IF(masssizeflag.eq.1.or.sphrflag.eq.1)rhoavg=920.
       !rhoavg=500.
       iwc = ni*rhoavg*vf        ! IWC after deltat
@@ -2346,10 +2132,156 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
  
       return
-      END SUBROUTINE EVOLVE
+    END SUBROUTINE EVOLVE
 
+    !********************************************************
+    !THIS SUBROUTINE COMPUTES DELTASTR, ICE DENSITY, AND ICE
+    !EQUIVALENT VOL RADIUS AND SUBSEQUENTLY PERFORMS LIMIT
+    !CHECKS.
+    !********************************************************
+    SUBROUTINE ICE_CHECKS(ni,qi,ani,cni,rni,deltastr,rhobar,iaspect,&
+         masssizeflag,sphrflag,redden,betam,alphstr,alphv)
+                 
+      IMPLICIT NONE
+      INTEGER iaspect, masssizeflag, sphrflag, redden
+      REAL qi, ni, ani, cni, rni, deltastr, rhobar
+      REAL betam,alphstr,alphv
+      
+      CALL DSTR_CHECK(ni,ani,cni,deltastr,iaspect,masssizeflag,sphrflag)
+      CALL RHO_CHECK(deltastr,qi,ni,ani,cni,masssizeflag,sphrflag,redden,betam,alphstr,alphv)
+      CALL R_CHECK(qi,ni,cni,ani,rni,rhobar,deltastr,masssizeflag,betam,alphstr,alphv)
+                 
 
+    END SUBROUTINE ICE_CHECKS
 
+    SUBROUTINE DSTR_CHECK(ni,ani,cni,deltastr,iaspect,masssizeflag,sphrflag)
+      
+      IMPLICIT NONE
+      INTEGER :: iaspect,masssizeflag,sphrflag
+      REAL ::  ani, cni, deltastr, voltmp, ai, ci, ni
+
+      !     get deltastr from cni and ani
+      !     deltastr = 1 for ice particles pre-diagnosed as spheres
+      
+      IF((log(ani)-log(ao)).gt. 0.01 &
+           .and.(log(cni)-log(ao)).gt.0.001)THEN
+         deltastr = (log(cni)-log(ao))/(log(ani)-log(ao))
+      ELSE
+         deltastr = 1.
+      ENDIF
+      
+      
+      IF(iaspect .eq. 1) deltastr = 0.8
+      IF(masssizeflag .eq. 1) deltastr=1.0
+      IF(sphrflag .eq. 1) deltastr = 1.0
+      
+               
+      if(deltastr.lt.0.55) then
+         voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
+              (exp(gammln(NU+deltastr+2.)))/gammnu
+         deltastr=0.55
+         ani=((3.*voltmp*gammnu)/ &
+              (4.*pi*ao**(1.-deltastr)*(exp(gammln(NU+deltastr+2.)))))** &
+              (1./(2.+deltastr))
+         ai=max((NU*ni*ani),1.e-20)
+         ani=ai/(NU*ni)
+      else if (deltastr.gt.1.5) then
+         voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
+              (exp(gammln(NU+deltastr+2.)))/gammnu
+         deltastr=1.5
+         ani=((3.*voltmp*gammnu)/ &
+              (4.*pi*ao**(1.-deltastr)*(exp(gammln(NU+deltastr+2.)))))** &
+              (1./(2.+deltastr))
+         ai=max((NU*ni*ani),1.e-20)
+         ani=ai/(NU*ni)
+         cni=ao**(1.-deltastr)*ani**deltastr
+         ci=max((NU*ni*cni),1.e-20)
+         cni=ci/(nu*ni)
+      endif
+      
+    END SUBROUTINE DSTR_CHECK
+
+    SUBROUTINE RHO_CHECK(deltastr,qi,ni,ani,cni,masssizeflag,sphrflag,redden,betam,alphstr,alphv)
+      IMPLICIT NONE
+      INTEGER masssizeflag, sphrflag, redden
+      REAL deltastr, qi, ni, ani, cni
+      REAL alphstr, alphv, betam
+      REAL rhobar
+      
+      betam = 2.+deltastr
+      alphstr = ao**(1.-deltastr)
+      alphv = (4./3.)*pi*alphstr
+      
+      !     get avg ice density 
+               
+      rhobar = qi*gammnu/(ni*alphv* &
+           ani**betam*exp(gammln(nu+betam)))
+               
+      IF(masssizeflag .eq. 1.or.sphrflag.eq.2) rhobar = 920.
+      If(redden .eq. 1) rhoi = 500.
+
+      !     rhobar=500.
+      !     check bounds for ice density
+      IF(rhobar.gt.920.)THEN 
+                      
+         rhobar=920.
+         ani=((qi*gammnu)/(rhobar*ni*alphv*&
+              exp(gammln(nu+betam))))**(1./betam)
+         cni=ao**(1.-deltastr)*ani**deltastr
+                  
+      ELSE IF(rhobar.lt.50.)THEN
+                      
+         rhobar=50.
+         ani=((qi*gammnu)/(rhobar*ni*alphv*&
+              exp(gammln(nu+betam))))**(1./betam)
+         cni=ao**(1.-deltastr)*ani**deltastr
+                      
+      END IF
+    END SUBROUTINE RHO_CHECK
+
+    !     get rni (characteristic equivalent volume ice radius)
+    SUBROUTINE R_CHECK(qi,ni,cni,ani,rni,rhobar,deltastr,masssizeflag,betam,alphstr,alphv)
+      IMPLICIT NONE
+      INTEGER masssizeflag
+      REAL qi, ni, cni, ani, rhobar, deltastr
+      REAL rni
+      REAL alphstr, alphv, betam
+      
+      betam = 2.+deltastr
+      alphstr = ao**(1.-deltastr)
+      alphv = (4./3.)*pi*alphstr
+
+      rni = (qi*3./(ni*rhobar*4.*pi*&
+           (exp(gammln(nu+deltastr+2.))/gammnu)))**(1./3.)
+      
+      IF(masssizeflag .eq. 1)THEN
+         rni=ani
+         IF(cni.gt.ani)rni=cni
+      ENDIF
+      
+      !     make sure rni is within reasonable bounds,
+      
+      IF(rni.lt.2.e-6)THEN
+         
+         rni=2.e-6
+         ni=3.*qi*gammnu/(4.*pi*rhobar*rni**3.*&
+              (exp(gammln(nu+deltastr+2.))))
+         ani=((qi*gammnu)/(rhobar*ni*alphv* &
+              exp(gammln(nu+betam))))**(1./betam) 
+         cni=ao**(1.-deltastr)*ani**deltastr
+         
+      ELSE IF(rni.gt.2.e-3)THEN
+         
+         rni=2.e-3
+         ni=3.*qi*gammnu/(4.*pi*rhobar*rni**3.* &
+              (exp(gammln(nu+deltastr+2.))))
+         ani=((qi*gammnu)/(rhobar*ni*alphv* &
+              exp(gammln(nu+betam))))**(1./betam)
+         cni=ao**(1.-deltastr)*ani**deltastr
+         
+      END IF
+    END SUBROUTINE R_CHECK
+    
 
 !------------------------------------------------------------------
 !     FUNCTION FINDGTP

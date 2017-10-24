@@ -1,33 +1,11 @@
-      MODULE MODULE_MP_SULIAHARRINGTON
-      USE module_wrf_error
-!     USE module_utility, ONLY: WRFU_Clock, WRFU_Alarm  ! GT
-!     USE module_domain, ONLY : HISTORY_ALARM, Is_alarm_tstep  ! GT
-
-!     USE module_state_description
-      USE module_dm
-      USE module_comm_dm
-
-      USE ieee_arithmetic
+MODULE MODULE_MP_SULIAHARRINGTON
       IMPLICIT NONE
 
-!     INCLUDE 'mpif.h'
 
       REAL, PARAMETER :: PI = 3.1415926535897932384626434
       REAL, PARAMETER :: SQRTPI = 0.9189385332046727417803297
-      LOGICAL, PARAMETER :: PIRE_CHEM = .TRUE.
+      LOGICAL, PARAMETER :: PIRE_CHEM = .FALSE.
 
-      PUBLIC  ::  MP_SULIAHARRINGTON
-!     PUBLIC  ::  SULIAHARRINGTON_INIT
-      PRIVATE  ::  POLYSVP1
-      PRIVATE :: GAMMA
-      PRIVATE :: PI, SQRTPI
-      PRIVATE :: GAMMLN
-!     PRIVATE :: EVOLVE
-      PRIVATE :: FINDGTP
-      PRIVATE :: LENCONV
-      PRIVATE :: FLHS
-      PRIVATE :: CAPACITANCE_GAMMA
-      PRIVATE :: SULIAHARRINGTON_MICRO
 
       REAL, PRIVATE ::  rhoi    !BULK DENSITY OF CLOUD ICE
       REAL, PRIVATE ::  nu      !DISTRIBUTION SHAPE FACTOR
@@ -199,62 +177,23 @@ CONTAINS
 
       END SUBROUTINE SULIAHARRINGTON_INIT
 
-!********************************************************************************
-!     THIS SUBROUTINE IS MAIN INTERFACE WITH THE TWO-MOMENT MICROPHYSICS SCHEME
-!     THIS INTERFACE TAKES IN 3D VARIABLES FROM DRIVER MODEL, CONVERTS TO 2D FOR
-!     CALL TO THE MAIN MICROPHYSICS SUBROUTINE (SUBROUTINE SULIAHARRINGTON_MICRO) 
-!     WHICH OPERATES ON A 2D (X-Z) GRID.
-!     2D VARIABLES FROM THE MAIN MICROPHYSICS SUBROUTINE ARE THEN REASSIGNED BACK 
-!     TO 3D FOR OUTPUT BACK TO DRIVER MODEL USING THIS INTERFACE.
-!     MICROPHYSICS TENDENCIES ARE ADDED TO VARIABLES HERE BEFORE BEING PASSED BACK 
-!     TO DRIVER MODEL.
-
-!     THIS CODE WAS WRITTEN BY JERRY HARRINGTON (PSU,JYH10@PSU.EDU), HUGH MORRISON (NCAR), 
-!     AND KARA SULIA (PSU), AND IMPLEMENTED BY KARA SULIA (KJS5066@GMAIL.COM).
-!-------------------------------------------------------------------------------
+      
       SUBROUTINE MP_SULIAHARRINGTON(ID,ITIMESTEP,&
       TH, QV, QC, QR, QI, QS, QG, NC, NR, NI, NS,&
       NG, AI, CI, RHO, PII, P, DT, DZ, HT, W,    &
       ICEDEP, ICESUB, RAINEVAP, SNOWEVAP,        &
       SNOWMELT, SNOWDEP, SNOWSUB, SNOWACCR,      &
       CLOUDCOND, CLOUDEVAP, ICEMELT, ICENUC,     &
-      RAINFRZ, CLOUDFRZ, &
-      !SEDR, SEDI, SEDS,    &
-      !SEDG, NAGGOUT, NRAGGOUT, NSAGGOUT, PRAOUT &
-      !,RAINACC,RAINACCT,SNOWACC,SNOWACCT &
-      !,GRAUPELACC,GRAUPELACCT,FRZNACC,FRZNACCT &
+      RAINFRZ, CLOUDFRZ &
       ,PHI,RHOICE,RELH      &
       ,IDS,IDE, JDS,JDE, KDS,KDE              & ! domain dims
       ,IMS,IME, JMS,JME, KMS,KME              & ! memory dims
       ,ITS,ITE, JTS,JTE, KTS,KTE              & ! tile   dims
       )
-!*******************************************************************************
 
-!     QV - water vapor mixing ratio (kg/kg)
-!     QC - cloud water mixing ratio (kg/kg)
-!     QI - cloud ice mixing ratio (kg/kg)
-!     NI - cloud ice number concentration (1/kg)
-!     AI - a-axis length mixing ratio (m/kg)
-!     CI - c-axis length mixing ratio (m/kg)
-!     NOTE: HT NOT USED BY THIS SCHEME AND NOT NEEDED TO BE PASSED INTO SCHEME
-!     P - AIR PRESSURE (PA)
-!     W - VERTICAL AIR VELOCITY (M/S)
-!     TH - POTENTIAL TEMPERATURE (K)
-!     PII - exner function - used to convert potential temp to temp
-!     DZ - difference in height over interface (m)
-!     DT - model time step (sec)
-!     ITIMESTEP - time step counter
-!     RAINACC - accumulated grid-scale precipitation (mm)
-!     RAINACCT - one time step grid scale precipitation (mm/time step)
-!     SNOWACC - accumulated grid-scale snow plus cloud ice (mm)
-!     SNOWACCT - one time step grid scale snow plus cloud ice (mm/time step)
-!     GRAUPELACC - accumulated grid-scale graupel (mm)
-!     GRAUPELACCT - one time step grid scale graupel (mm/time step)
-!     FRZNACC - accumulated grid-scale snow plus cloud ice plus graupel (mm)
-!     FRZNACCT - one time step grid scale snow plus cloud ice plus graupel (mm/time step)
+        IMPLICIT NONE
 
-      IMPLICIT NONE
-
+        
       INTEGER, INTENT(IN) :: ids, ide, jds, jde, kds, kde, &
       ims, ime, jms, jme, kms, kme, &
       its, ite, jts, jte, kts, kte, &
@@ -272,11 +211,13 @@ CONTAINS
       REAL, DIMENSION(ims:ime, kms:kme, jms:jme), INTENT(INOUT) ::   &
       ICEDEP, ICESUB, RAINEVAP, SNOWEVAP, SNOWMELT,         &
       SNOWDEP, SNOWSUB, SNOWACCR, CLOUDCOND, CLOUDEVAP,     &
-      ICEMELT, ICENUC, RAINFRZ, CLOUDFRZ, PHI, RHOICE, RELH,&
-      SEDI, SEDS, SEDR, SEDG, NAGGOUT, NRAGGOUT, NSAGGOUT, PRAOUT
+      ICEMELT, ICENUC, RAINFRZ, CLOUDFRZ, PHI, RHOICE, RELH
+      
+      REAL, DIMENSION(ims:ime, kms:kme, jms:jme) :: SEDI, SEDS, &
+           SEDR, SEDG, NAGGOUT, NRAGGOUT, NSAGGOUT, PRAOUT
 
       REAL, DIMENSION(ims:ime, jms:jme), INTENT(IN) :: HT
-      REAL, DIMENSION(ims:ime, jms:jme), INTENT(INOUT) :: RAINACC, &
+      REAL, DIMENSION(ims:ime, jms:jme) :: RAINACC, &
       RAINACCT,SNOWACC, SNOWACCT, GRAUPELACC, GRAUPELACCT, FRZNACC, &
       FRZNACCT
 
@@ -672,12 +613,11 @@ CONTAINS
       ,1.46114,  1.47097,  1.48087, 1.50105,  1.50087,  1.51098/
 
       INTEGER, PARAMETER :: nin = 15, nccn = 8
-      INTEGER size_opt
+      INTEGER size_opt, n1, n2
       REAL :: IIN(ide,jde,kde),CCN(ide,kde,nccn),&
                           IIN_SUM(ide,jde,kde), IIN_SUMJ(ide,kde)
       
-      REAL rdry(nin),ccnsup(nccn), denom, nuc1, n1,&
-           n2, nuc_in
+      REAL rdry(nin),ccnsup(nccn), denom, nuc1,  nuc_in
       DATA rdry/1.500E-02, 3.182E-02, 6.364E-02, 1.255E-01,2.291E-01&
       ,3.873E-01, 6.225E-01, 9.843E-01, 1.531E+00, 2.312E+00&
       ,3.269E+00, 5.214E+00, 9.708E+00, 1.632E+01, 2.541E+01/ !microns
@@ -700,7 +640,7 @@ CONTAINS
       EVOLVE_ON  = 1            !depositional growth
       RAINON     = 1            !rain processes
       ICE_CALCS  = 1            !all ice calculations
-      ice_start_time = 60.*60.*4.0 !time to begin ice nucleation & homogeneous freezing
+      ice_start_time = 0. !time to begin ice nucleation & homogeneous freezing
       LTRUE = 0
       graupel = 1               !1 on
       processes = 1
@@ -3642,7 +3582,7 @@ CONTAINS
 !     rf = ((rni*gamrats)**2 + 2.*gi*sui*fs/rhodep &
 !           *gammnu/gammnubet*gamrats**3*deltt)**(0.5) ! rmean after deltat
 
-      rf = (max(((rni*gamrats)**2 + 2.*gi*sui*fs/rhodep &
+      rf = (max(((rni*gamrats)**2 + 2.*gi*real(sui)*fs/rhodep &
            *gammnu/gammnubet*gamrats**3*deltt),1.e-20))**(0.5) ! rmean after deltat
       rnf = rf/gamrats           ! convert to rn (characteristic r)
       anf = alphanr*rnf**(3./(2.+igr)) ! characteristic a-axis after deltat
@@ -4129,19 +4069,6 @@ CONTAINS
 !C ---------- LAST LINE OF GAMMA ----------
       END function gamma
 
-      LOGICAL FUNCTION  wrf_dm_on_monitor()
-      IMPLICIT NONE
-#ifndef STUBMPI
-      INCLUDE 'mpif.h'
-      INTEGER tsk, ierr, mpi_comm_local
-      CALL wrf_get_dm_communicator( mpi_comm_local )
-      CALL mpi_comm_rank ( mpi_comm_local, tsk , ierr )
-      wrf_dm_on_monitor = tsk .EQ. 0
-#else
-      wrf_dm_on_monitor = .TRUE.
-#endif
-      RETURN
-      END FUNCTION wrf_dm_on_monitor
 
 
 

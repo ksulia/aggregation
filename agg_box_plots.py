@@ -17,7 +17,7 @@ warnings.filterwarnings("ignore")
 np.set_printoptions(threshold=np.inf)
 
 
-infile = 'OUTPUT_PIRE.NC'
+infile = 'OUTPUT.NC'
 fh = Dataset(infile,mode = 'r')
 
 time = (fh.variables['TIMES'][:])

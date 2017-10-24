@@ -1,6 +1,5 @@
 PROGRAM MICROWRAPPER
 
-
   USE MODULE_MP_SULIAHARRINGTON
   USE NETCDF_PLUGIN
 
@@ -11,7 +10,7 @@ PROGRAM MICROWRAPPER
   INTEGER :: NCID,TID,VID
 
   ! DEFINE VARIABLES
-  INTEGER :: ITIMESTEP
+  INTEGER :: ID,ITIMESTEP
   INTEGER, PARAMETER :: NTIMES=1000
 
   REAL, DIMENSION(1,1,1) :: ICEDEP,ICESUB,RAINEVAP,SNOWEVAP,SNOWMELT
@@ -33,11 +32,12 @@ PROGRAM MICROWRAPPER
   REAL, DIMENSION(NTIMES+1) :: SNOWDEPOUT,SNOWSUBOUT,SNOWACCROUT,CLOUDCONDOUT,CLOUDEVAPOUT,ICEMELTOUT,ICENUCOUT,RAINFRZOUT,CLOUDFRZOUT
 
   !INITIALIZE VARIABLES
-  WRITE(FNAME,"(A9)") "OUTPUT_PIRE.NC"
+  WRITE(FNAME,"(A9)") "OUTPUT.NC"
 
   DQV = 1.E-4
   DTEMP = 0.27
   DT = 1.
+  ID = 1
   !NTIMES = 1000.
   T_INIT = 260. !K
   P_INIT = 800. !HPA
@@ -144,6 +144,7 @@ PROGRAM MICROWRAPPER
 !     TH(1,1,1) = T_INIT*(1.E5/P_INIT/100.)**(287.05/1005.)
 
     CALL MP_SULIAHARRINGTON(                       &
+    ID=ID,                                 &
     ITIMESTEP=ITIMESTEP,                &  !*
     TH=TH,                              &  !*
     QV=QV_CURR,                         &  !*
@@ -159,8 +160,6 @@ PROGRAM MICROWRAPPER
     NG=QNG_CURR,                      &
     AI=AICE_CURR,                     &
     CI=CICE_CURR,                     &
-    AS=ASNOW_CURR,                     &
-    CS=CSNOW_CURR,                     &
     RHO=RHO,                            &  !*
     PII=PI_PHY,                         &  !*
     P=P,                                &  !*

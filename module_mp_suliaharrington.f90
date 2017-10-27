@@ -480,7 +480,7 @@ CONTAINS
       REAL, DIMENSION(its:ite,kts:kte) :: p, rho, rhoice,phi,relh
       REAL :: dt
 
-      INTEGER i, k, iflag, nstep, n, iaspect, ISDACflag, homofreeze,&
+      INTEGER i, k, iflag, nstep, n, iaspect, homofreeze,&
       masssizeflag, ipart, resupply, sphrflag, SEDON, RAINON,       &
       DSTRCHECKS, ICE_CALCS, EVOLVE_ON, snow_on, ice_start_time,    &
       processes, LTRUE, CNUM, redden, nucleation, icontactflag,     &
@@ -631,7 +631,6 @@ CONTAINS
 !     3 for Mitchell's mass relations (stellars, columns)
 !     4 for Wood's (2007) mass-size relations
       iaspect    = 0            !set constant aspect ratio (sensitivity study)
-      ISDACflag  = 0            !test for ISDAC intercomparison
       sphrflag   = 0            !all ice assumed spheres
       redden     = 0
       homofreeze = 1            !homogeneous freezing
@@ -649,8 +648,6 @@ CONTAINS
       icontactflag = 0 !0 contact freezing off, 1 on
       ccnflag = 0 !0 CCN from aerosol data used, 1 CCN from aerosol data NOT used
 
-      IF(ISDACflag .EQ. 1) homofreeze=0
-      IF(ISDACflag .eq. 1) rhoi = 88.4
       IF(sphrflag  .eq. 1) rhoi = 920.
       If(redden .eq. 1) rhoi = 500.
   
@@ -773,7 +770,6 @@ CONTAINS
 
             deltastr = 1.
             rhobar = 920.
-            IF(ISDACflag .eq. 1) rhobar = 88.4
             If(redden .eq. 1) rhoi = 500.
             temp = t(i,k)
             celsius = temp-273.15
@@ -1554,7 +1550,6 @@ CONTAINS
                ELSE
                   deltastr = 1.
                ENDIF
-               IF(ISDACflag .eq. 1)deltastr = 1.0
                IF(iaspect .eq. 1) deltastr = 0.8
                IF(masssizeflag .eq. 1) deltastr=1.0
         IF(sphrflag .eq. 1) deltastr = 1.0  
@@ -1605,7 +1600,6 @@ CONTAINS
                rhobar = qi(i,k)*gammnu/(ni(i,k)*alphv* &
                ani**betam*exp(gammln(nu+betam)))
                
-               IF(ISDACflag .eq. 1) rhobar = 88.4
                IF(masssizeflag .eq. 1.or.sphrflag.eq.2) rhobar = 920.
                If(redden .eq. 1) rhoi = 500.
 
@@ -1710,7 +1704,6 @@ CONTAINS
                END IF
 
                IF(iaspect .eq. 1) igr = .27
-               IF(ISDACflag .eq. 1) igr = 1.0
                IF(sphrflag .eq. 1) igr=1.0
                If(redden .eq. 1) rhoi = 500.
 !     calculate number concentration from number mixing ratio
@@ -1722,7 +1715,7 @@ CONTAINS
                   CALL EVOLVE(ani,nidum,sui,sup,qvv,temp,press,igr,dt,iwcf,&
                   cnf,iwci,phii,phif,cni,rni,rnf,anf,deltastr,mu,&
                   rhobar,vtbarb,vtbarbm,alphstr,vtbarblen,rhoa,i,k,iaspect&
-                  ,ISDACflag,masssizeflag,ipart,sphrflag,redden,itimestep) 
+                  ,masssizeflag,ipart,sphrflag,redden,itimestep) 
                   
                   betam = deltastr + 2.0
                   alphstr = ao**(1.-deltastr)
@@ -1753,7 +1746,7 @@ CONTAINS
                END IF
 
                 IF(nucleation .eq. 0) then 
-                   CALL SIMPLENUC(temp,sui,ISDACflag,rho(i,k),ni(i,k),&
+                   CALL SIMPLENUC(temp,sui,rho(i,k),ni(i,k),&
                      dt,mnuccd,nnuccd,nuc1,rdry,nin)
                 ELSE IF (nucleation .eq. 1) then
                    CALL MEYERS(temp,sui,rho(i,k),ni(i,k),dt,mnuccd,pgam,&
@@ -1964,7 +1957,7 @@ CONTAINS
                   deltastr = 1.
                ENDIF
 
-               IF(ISDACflag .eq. 1 .or.masssizeflag .eq. 1 .or. &
+               IF(masssizeflag .eq. 1 .or. &
                sphrflag .eq. 1) deltastr = 1.0
                IF(iaspect .eq. 1) deltastr = 0.8
 
@@ -2016,7 +2009,6 @@ CONTAINS
                rhobar = qi(i,k)*gammnu/(ni(i,k)*alphv* &
                ani**betam*exp(gammln(nu+betam)))
 
-               IF(ISDACflag .eq. 1) rhobar = 88.4
                IF(masssizeflag .eq. 1) rhobar = 920.
                IF(sphrflag .eq. 1) rhobar = 920.
                If(redden .eq. 1) rhoi = 500.
@@ -2119,7 +2111,6 @@ CONTAINS
                rhobar=920.
             END IF
             IF(iaspect .eq. 1) phii = 0.27
-            IF(ISDACflag .eq. 1) rhobar=88.4 
             IF(masssizeflag .eq. 1) rhobar=920.
             IF(sphrflag .eq. 1) rhobar =920.
             If(redden .eq. 1) rhoi = 500.
@@ -2795,14 +2786,14 @@ CONTAINS
       END SUBROUTINE APM
 
 !---------------------------------------------------------------------
-      SUBROUTINE SIMPLENUC(temp,sui,ISDACflag,rhodum,nidum,dt,mnuccd,&
+      SUBROUTINE SIMPLENUC(temp,sui,rhodum,nidum,dt,mnuccd,&
         nnuccd,nuc1,rdry,nin)
 !---------------------------------------------------------------------
 
       IMPLICIT NONE
 
       REAL :: temp, dum, nnuccd, dt, mnuccd
-      INTEGER :: ISDACflag, k, nin
+      INTEGER :: k, nin
       REAL*8 :: sui
       REAL :: rhodum, nidum, nuc1, mi, wght, rdry(nin)
             
@@ -2822,19 +2813,13 @@ CONTAINS
            dum = nuc1*1000./rhodum !1/L*1000/rho ~ 1000/kg
            mi = mi0
         END IF
-
-        IF(ISDACflag .eq. 0)THEN                  
-!           dum = nuc*1000./rhodum !1/L*1000/rho ~ 1000/kg
-           !IF(nidum.lt.dum)THEN
-           IF(nidum .lt. dum) THEN !dum used to be nuc1
-              nnuccd=(dum-nidum)/dt
-           END IF
-
-         ELSE IF(ISDACflag .eq. 1) THEN
-!           dum = nuc*1000./rhodum !1/L*1000/rho ~ 1000/kg
-           mi = 4./3.*pi*88.4*(5.e-6)**3
-           nnuccd = max(0.0,(dum-nidum)/dt)
+               
+        !           dum = nuc*1000./rhodum !1/L*1000/rho ~ 1000/kg
+        !IF(nidum.lt.dum)THEN
+        IF(nidum .lt. dum) THEN !dum used to be nuc1
+           nnuccd=(dum-nidum)/dt
         END IF
+
 
         mnuccd = nnuccd*mi
  
@@ -3250,13 +3235,13 @@ CONTAINS
 
       SUBROUTINE EVOLVE(ani,ni,sui,sup,qvv,temp,press,igr,deltt,iwc,cf,&
           iwci,phii,phif,cni,rni,rnf,anf,deltastr,mu,rhoavg,vtbarb,&
-          vtbarbm,alphstr,vtbarblen,rhoa,i,k,iaspect,ISDACflag,&
+          vtbarbm,alphstr,vtbarblen,rhoa,i,k,iaspect,&
           masssizeflag,ipart,sphrflag,redden,itimestep)
 !***********************************************************************
 
       IMPLICIT NONE
 
-      INTEGER ipart,ivent,i,k,iaspect,ISDACflag,redden,masssizeflag
+      INTEGER ipart,ivent,i,k,iaspect,redden,masssizeflag
       INTEGER sphrflag,itimestep,MICRO_ON
       REAL ani,ni,temp,press,qvv
       REAL igr,gi,capgam,dmdt,deltt,qe
@@ -3280,7 +3265,6 @@ CONTAINS
       cv = 12.*2.**bv
       bm1 = 3.0
       ivent=1
-      IF(ISDACflag .EQ. 1) ivent=0
       grav = 9.81
       celsius = temp-273.15
       fv = 1.0
@@ -3305,7 +3289,6 @@ CONTAINS
       gammnubet=exp(gammln(nu+betam))
 
       capgam = capacitance_gamma(l,deltastr,nu,alphstr)
-      IF(ISDACflag .EQ. 1) capgam=capgam*2./pi
       lmean = l*nu
 
       cap = 0.
@@ -3467,12 +3450,6 @@ CONTAINS
          * wghtv3
       endif
       
-      IF(ISDACflag .eq. 1)THEN
-         vtbarb = cv*ani**bv*exp(gammln(nu+bv))/gammnu
-         vtbarbm = cv*ani**bv*exp(gammln(nu+bv+1.))/exp(gammln(nu+1.))
-         vtbarblen = cv*ani**bv*exp(gammln(nu+bv+bm1))/&
-         exp(gammln(nu+bm1))
-      END IF
       
 !      IF(masssizeflag .EQ. 1)THEN
 !         vtbarb = alpha_v*2.**beta_v*l**beta_v*&
@@ -3574,8 +3551,6 @@ CONTAINS
          endif
       endif
 
-
-      IF(ISDACflag.eq.1) rhodep = 88.4
 !      IF(masssizeflag .eq. 1.or.sphrflag.eq.1) rhodep=920.
       If(redden .eq. 1) rhodep = 500.
       !rhodep=500.
@@ -3591,7 +3566,6 @@ CONTAINS
       rhoavg = rhoavg*(vi/vf) + rhodep*(1.-vi/vf) ! new average ice density
       rhoavg = max(min(rhoavg,920.),50.)
 
-      IF(ISDACflag .eq.1) rhoavg = 88.4
 !      IF(masssizeflag.eq.1.or.sphrflag.eq.1)rhoavg=920.
       !rhoavg=500.
       iwc = ni*rhoavg*vf        ! IWC after deltat

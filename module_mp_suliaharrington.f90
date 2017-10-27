@@ -324,7 +324,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       REAL, INTENT(IN) :: dt
 
 
-      INTEGER i, k, iflag, nstep, n, iaspect, homofreeze, nuc_scheme, &
+      INTEGER i, k, iflag, nstep, n, iaspect, homofreeze, &
       masssizeflag, ipart, resupply, sphrflag, SEDON, RAINON,       &
       DSTRCHECKS, ICE_CALCS, EVOLVE_ON, snow_on, ice_start_time,    &
       processes, LTRUE, CNUM, redden, snowflag, agg_flag
@@ -427,7 +427,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
 !     2 for Mitchell's mass relations (hex plates, columns)
 !     3 for Mitchell's mass relations (stellars, columns)
       !     4 for Wood's (2007) mass-size relations
-      nuc_scheme = 0
       iaspect    = 0            !set constant aspect ratio (sensitivity study)
       sphrflag   = 0            !all ice assumed spheres
       redden = 0
@@ -435,7 +434,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       snow_on    = 1            !ice --> snow & aggregation
       SEDON      = 1            !sedimentation
       EVOLVE_ON  = 1            !depositional growth
-      RAINON     = 0            !rain processes
+      RAINON     = 1            !rain processes
       ICE_CALCS  = 1            !all ice calculations
       ice_start_time = 0.!60.*60.*4.0 !time to begin ice nucleation & homogeneous freezing
       LTRUE = 0
@@ -985,18 +984,10 @@ MODULE MODULE_MP_SULIAHARRINGTON
 !     get ice nucleation 
             IF(temp.lt.268.15 .and.sui.ge.0.05)THEN
                IF(REAL(itimestep)*dt.gt.ice_start_time)THEN 
-                  IF(nuc_scheme.eq.1)THEN !MEYERS + VAN DEN HEEVER
-
-                     dum=exp(-0.639+0.1296*100.*sui)*nuc*1000./rho(i,k) 
-                     !set maximum possible ice # to 100 L-1 (dum[=]kg-1 and convert to m-3 - KJS)
-                     dum=min(dum,nuc*1000./rho(i,k))
-                     
-                  ELSE IF(nuc_scheme.eq.2)THEN !DEMOTT
-                  ELSE!SIMPLE
-                     dum = nuc*1000./rho(i,k) !1/L*1000/rho ~ 1000/kg
-                     IF(ni(i,k).lt.dum) nnuccd=(dum-ni(i,k))/dt
-                  END IF
-                  
+              
+                  dum = nuc*1000./rho(i,k) !1/L*1000/rho ~ 1000/kg
+                  IF(ni(i,k).lt.dum) nnuccd=(dum-ni(i,k))/dt
+  
                   mnuccd = nnuccd*mi0
                END IF!ice start time
             END IF!temp and sui

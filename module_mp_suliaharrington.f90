@@ -1154,7 +1154,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
                CALL DSTR_CHECK(ni(i,k),ani,cni,deltastr,iaspect,masssizeflag,sphrflag)
                CALL RHO_CHECK(deltastr,qi(i,k),ni(i,k),ani,cni,masssizeflag,sphrflag,redden,&
-                    betam,alphstr,alphv)
+                    betam,alphstr,alphv,rhobar)
                ci(i,k)=nu*ni(i,k)*cni
                ai(i,k)=nu*ni(i,k)*ani
          
@@ -2139,7 +2139,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       REAL betam,alphstr,alphv
       
       CALL DSTR_CHECK(ni,ani,cni,deltastr,iaspect,masssizeflag,sphrflag)
-      CALL RHO_CHECK(deltastr,qi,ni,ani,cni,masssizeflag,sphrflag,redden,betam,alphstr,alphv)
+      CALL RHO_CHECK(deltastr,qi,ni,ani,cni,masssizeflag,sphrflag,redden,betam,alphstr,alphv,rhobar)
       CALL R_CHECK(qi,ni,cni,ani,rni,rhobar,deltastr,masssizeflag,betam,alphstr,alphv)
                  
 
@@ -2192,7 +2192,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       
     END SUBROUTINE DSTR_CHECK
 
-    SUBROUTINE RHO_CHECK(deltastr,qi,ni,ani,cni,masssizeflag,sphrflag,redden,betam,alphstr,alphv)
+    SUBROUTINE RHO_CHECK(deltastr,qi,ni,ani,cni,masssizeflag,sphrflag,redden,betam,alphstr,alphv,rhobar)
       IMPLICIT NONE
       INTEGER masssizeflag, sphrflag, redden
       REAL deltastr, qi, ni, ani, cni

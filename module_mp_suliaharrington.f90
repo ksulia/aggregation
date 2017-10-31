@@ -85,7 +85,7 @@ CONTAINS
       rhoi = 920.
 !     rhoi = 500.
       nu = 4.
-      nuc = 10.
+      nuc = 1.
       rd = 287.15
       cp = 1005.
       cpw = 4187.
@@ -185,7 +185,7 @@ CONTAINS
       SNOWMELT, SNOWDEP, SNOWSUB, SNOWACCR,      &
       CLOUDCOND, CLOUDEVAP, ICEMELT, ICENUC,     &
       RAINFRZ, CLOUDFRZ &
-      ,PHI,RHOICE,RELH      &
+      ,PHI,RHOICE,RELH,CPLX,PHIS,RHOS,CPLXS      &
       ,IDS,IDE, JDS,JDE, KDS,KDE              & ! domain dims
       ,IMS,IME, JMS,JME, KMS,KME              & ! memory dims
       ,ITS,ITE, JTS,JTE, KTS,KTE              & ! tile   dims
@@ -211,7 +211,8 @@ CONTAINS
       REAL, DIMENSION(ims:ime, kms:kme, jms:jme), INTENT(INOUT) ::   &
       ICEDEP, ICESUB, RAINEVAP, SNOWEVAP, SNOWMELT,         &
       SNOWDEP, SNOWSUB, SNOWACCR, CLOUDCOND, CLOUDEVAP,     &
-      ICEMELT, ICENUC, RAINFRZ, CLOUDFRZ, PHI, RHOICE, RELH
+      ICEMELT, ICENUC, RAINFRZ, CLOUDFRZ, PHI, RHOICE, RELH,&
+      CPLX,PHIS,RHOS,CPLXS
       
       REAL, DIMENSION(ims:ime, kms:kme, jms:jme) :: SEDI, SEDS, &
            SEDR, SEDG, NAGGOUT, NRAGGOUT, NSAGGOUT, PRAOUT
@@ -230,7 +231,8 @@ CONTAINS
       RHO2D, P2D, ICEDEP2D, ICESUB2D, RAINEVAP2D, SNOWEVAP2D, SNOWMELT2D,&
       SNOWDEP2D, SNOWSUB2D, SNOWACCR2D, CLOUDCOND2D, CLOUDEVAP2D,  &
       ICEMELT2D, ICENUC2D, RAINFRZ2D, CLOUDFRZ2D, PHI2D, RHOICE2D, &
-      RELH2D, NAGGOUT2D, NRAGGOUT2D, NSAGGOUT2D, PRAOUT2D
+      RELH2D, NAGGOUT2D, NRAGGOUT2D, NSAGGOUT2D, PRAOUT2D, &
+      CPLX2D, PHIS2D, RHOS2D, CPLXS2D
 
       REAL, DIMENSION(its:ite, jts:jte) :: LWP,IWP,PATHVAR,PATHVAR2
       REAL, DIMENSION(kts:kte) ::  avgthl,TOT,TOT2,DZQ, &
@@ -372,7 +374,7 @@ CONTAINS
          CLOUDEVAP2D, ICEMELT2D, ICENUC2D, RAINFRZ2D, CLOUDFRZ2D,    &
          RSED, ISED, SSED, GSED, NAGGOUT2D, NRAGGOUT2D, NSAGGOUT2D, &
          PRAOUT2D, PHI2D, RHOICE2D, RELH2D, IIN, CCN, IIN_SUM,IIN_SUMJ,&
-         PRECPRT, SNOWRT, SNOWPRT, GRPLPRT)
+         PRECPRT, SNOWRT, SNOWPRT, GRPLPRT,CPLX2D,PHIS2D,RHOS2D,CPLXS2D)
 
 !     TRANSFER 2D ARRAYS BACK TO 3D FOR WRF
 
@@ -426,6 +428,11 @@ CONTAINS
                RHOICE(i,k,j) = RHOICE2D(i,k)
                RELH(i,k,j) = RELH2D(i,k)
                PHI(i,k,j) = PHI2D(i,k)
+               CPLX(i,k,j) = CPLX2D(i,k)
+
+               RHOS(i,k,j) = RHOS2D(i,k)
+               PHIS(i,k,j) = PHIS2D(i,k)
+               CPLXS(i,k,j) = CPLXS2D(i,k)
                THL(i,k,j)=TH(i,k,j)*exp((-QC(i,k,j)*2.46E6)/&
                (cp*T(i,k,j)))
 
@@ -457,7 +464,7 @@ CONTAINS
       cloudevap, icemelt, icenuc, rainfrz, cloudfrz, rsed, ised, ssed, &
       gsed, naggout, nraggout, nsaggout,   &
       praout, phi, rhoice, relh, iin, ccn, iin_sum, iin_sumj, &
-      precprt, snowrt, snowprt, grplprt)
+      precprt, snowrt, snowprt, grplprt,cplx, phis, rhos, cplxs)
 !****************************************************************************
 
       IMPLICIT NONE
@@ -477,7 +484,8 @@ CONTAINS
 
       REAL, DIMENSION(kts:kte) :: dzq, ised, ssed, gsed, rsed
 
-      REAL, DIMENSION(its:ite,kts:kte) :: p, rho, rhoice,phi,relh
+      REAL, DIMENSION(its:ite,kts:kte) :: p, rho, rhoice,phi,relh, &
+           cplx,rhos,phis,cplxs
       REAL :: dt
 
       INTEGER i, k, iflag, nstep, n, iaspect, homofreeze,&
@@ -641,9 +649,9 @@ CONTAINS
       ICE_CALCS  = 1            !all ice calculations
       ice_start_time = 0. !time to begin ice nucleation & homogeneous freezing
       LTRUE = 0
-      graupel = 1               !1 on
+      graupel = 0               !1 on
       processes = 1
-      nucleation = 1 !0 simple, 1 meyers, 2 demott
+      nucleation = 0 !0 simple, 1 meyers, 2 demott
       demottflag = 1 !0 DeMott 2010, 1 DeMott 2015
       icontactflag = 0 !0 contact freezing off, 1 on
       ccnflag = 0 !0 CCN from aerosol data used, 1 CCN from aerosol data NOT used
@@ -839,7 +847,7 @@ CONTAINS
                   nc(i,k)=1000. !testing with less than 1200.e6
                END IF
             ELSE
-               nc(i,k)=1000.
+               nc(i,k)=200.
             END IF
             nc(i,k) = nc(i,k)*1.e6/rho(i,k)
            
@@ -1544,143 +1552,14 @@ CONTAINS
 !     get deltastr from cni and ani
 !     deltastr = 1 for ice particles pre-diagnosed as spheres
                
-               IF((log(ani)-log(ao)).gt. 0.01 &
-                  .and.(log(cni)-log(ao)).gt.0.001)THEN
-                  deltastr = (log(cni)-log(ao))/(log(ani)-log(ao))
-               ELSE
-                  deltastr = 1.
-               ENDIF
-               IF(iaspect .eq. 1) deltastr = 0.8
-               IF(masssizeflag .eq. 1) deltastr=1.0
-        IF(sphrflag .eq. 1) deltastr = 1.0  
-!     make sure deltastr within reasonable limits
-!     IF(deltastr.lt.0.7)THEN
                
-!     deltastr = 0.7
-!     cni=ao**(1.-deltastr)*ani**deltastr
-!     ci(i,k)=nu*ni(i,k)*cni
-               
-!     ELSE IF (deltastr.gt.1.5)THEN
-               
-!     deltastr=1.5
-!     cni=ao**(1.-deltastr)*ani**deltastr
-!     ci(i,k)=nu*ni(i,k)*cni
-               
-!     END IF
-               
-               if(deltastr.lt.0.55) then
-                  voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
-                  (exp(gammln(NU+deltastr+2.)))/gammnu
-                  deltastr=0.55
-                  ani=((3.*voltmp*gammnu)/ &
-                  (4.*pi*ao**(1.-deltastr)*(exp(gammln(NU+deltastr+2.)))))** &
-                  (1./(2.+deltastr))
-                  ai(i,k)=max((NU*ni(i,k)*ani),1.e-20)
-                  ani=ai(i,k)/(NU*ni(i,k))
-               else if (deltastr.gt.1.5) then
-                  voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
-                  (exp(gammln(NU+deltastr+2.)))/gammnu
-                  deltastr=1.5
-                  ani=((3.*voltmp*gammnu)/ &
-                  (4.*pi*ao**(1.-deltastr)*(exp(gammln(NU+deltastr+2.)))))** &
-                  (1./(2.+deltastr))
-                  ai(i,k)=max((NU*ni(i,k)*ani),1.e-20)
-                  ani=ai(i,k)/(NU*ni(i,k))
-                  cni=ao**(1.-deltastr)*ani**deltastr
-                  ci(i,k)=max((NU*ni(i,k)*cni),1.e-20)
-                  cni=ci(i,k)/(nu*ni(i,k))
-               endif
-               
-               betam = 2.+deltastr
-               alphstr = ao**(1.-deltastr)
-               alphv = (4./3.)*pi*alphstr
-               
-!     get avg ice density 
-               
-               rhobar = qi(i,k)*gammnu/(ni(i,k)*alphv* &
-               ani**betam*exp(gammln(nu+betam)))
-               
-               IF(masssizeflag .eq. 1.or.sphrflag.eq.2) rhobar = 920.
-               If(redden .eq. 1) rhoi = 500.
+               !check that deltastr, rhobar, and rni are within reasonable bounds
+               CALL ICE_CHECKS(ni(i,k),qi(i,k),ani,cni,rni,deltastr,rhobar,&
+                    iaspect,masssizeflag,sphrflag,redden,betam,alphstr,alphv)
 
-!     rhobar=500.
-!     check bounds for ice density
-               IF(rhobar.gt.920.)THEN 
-                  
-                  rhobar=920.
-                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
-                  exp(gammln(nu+betam))))**(1./betam)
-                  cni=ao**(1.-deltastr)*ani**deltastr
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
-                  
-               ELSE IF(rhobar.lt.50.)THEN
-
-                  rhobar=50.
-                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
-                  exp(gammln(nu+betam))))**(1./betam)
-                  cni=ao**(1.-deltastr)*ani**deltastr
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
-                  
-               END IF
-!     get rni (characteristic equivalent volume ice radius)
-
-
-               rni = (qi(i,k)*3./(ni(i,k)*rhobar*4.*pi*&
-               (exp(gammln(nu+deltastr+2.))/gammnu)))**(1./3.)
-
-               IF(masssizeflag .eq. 1)THEN
-                  rni=ani
-                  IF(cni.gt.ani)rni=cni
-               ENDIF
+               ci(i,k)=nu*ni(i,k)*cni
+               ai(i,k)=nu*ni(i,k)*ani
                
-!     make sure rni is within reasonable bounds,
-               
-               IF(rni.lt.2.e-6)THEN
-                  
-                  rni=2.e-6
-                  ni(i,k)=3.*qi(i,k)*gammnu/(4.*pi*rhobar*rni**3.*&
-                  (exp(gammln(nu+deltastr+2.))))
-                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv* &
-                  exp(gammln(nu+betam))))**(1./betam) 
-!                  IF(masssizeflag .eq. 1)THEN
-!                     IF(ani.ge.cni)ani=rni
-!                     IF(cni.gt.ani)cni=rni
-!                     betam=betamp
-!                     ni(i,k)=(qi(i,k)*exp(gammln(nu+betam)))/&
-!                     (rni**betam*alphamsp*gammnu)
-!                     IF(ani.ge.cni)cni=ao**(1.-deltastr)*ani**deltastr
-!                     IF(cni.gt.ani)ani=ao**(deltastr-1.)*cni**&
-!                     (1./deltastr)
-!                  ELSE
-                     cni=ao**(1.-deltastr)*ani**deltastr
-!                  ENDIF
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
-                  
-               ELSE IF(rni.gt.2.e-3)THEN
-                  
-                  rni=2.e-3
-                  ni(i,k)=3.*qi(i,k)*gammnu/(4.*pi*rhobar*rni**3.* &
-                  (exp(gammln(nu+deltastr+2.))))
-                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv* &
-                  exp(gammln(nu+betam))))**(1./betam)
-!                  IF(masssizeflag .eq. 1)THEN
-!                     IF(ani.ge.cni)ani=rni
-!                     IF(cni.gt.ani)cni=rni
-!                     betam=betamp
-!                     ni(i,k)=(qi(i,k)*exp(gammln(nu+betam)))/&
-!                     (rni**betam*alphamsp*gammnu)
-!                     IF(ani.ge.cni)cni=ao**(1.-deltastr)*ani**deltastr
-!                     IF(cni.gt.ani)ani=ao**(deltastr-1.)*ani**&
-!                     (1./deltastr)
-!                  ELSE
-                     cni=ao**(1.-deltastr)*ani**deltastr
-!                  END IF
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
-               END IF  
                
 !     get iwc to calculate iwc tendency
 !     by substracting final and initial values
@@ -1817,40 +1696,17 @@ CONTAINS
                   
                   ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
                   exp(gammln(nu+betam))))**(1./betam)
-!                  IF(masssizeflag .eq. 1)THEN
-!                     betam=betamp
-!                     ani=((qi(i,k)*gammnu)/(ni(i,k)*alphamsp*&
-!                     exp(gammln(nu+betam))))**(1./betam)
-!                  END IF
+
                   cni=ao**(1.-deltastr)*ani**deltastr
                   ci(i,k)=nu*ni(i,k)*cni
                   ai(i,k)=nu*ni(i,k)*ani
                END IF           ! iflag = 1
 
-               rni = (qi(i,k)*3./(ni(i,k)*rhobar*4.*pi*&
-               (exp(gammln(nu+deltastr+2.))/gammnu)))**(1./3.)
-!     make sure rni is within reasonable bounds,
+               CALL R_CHECK(qi(i,k),ni(i,k),cni,ani,rni,rhobar,deltastr,masssizeflag,&
+                    betam,alphstr,alphv)
                
-               IF(rni.lt.2.e-6)THEN
-                  
-                  rni=2.e-6
-                  ni(i,k)=3.*qi(i,k)*gammnu/(4.*pi*rhobar*rni**3*&
-                  (exp(gammln(nu+deltastr+2.))))
-                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv* &
-                  exp(gammln(nu+betam))))**(1./betam) 
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
-                  
-               ELSE IF(rni.gt.2.e-3)THEN
-                  
-                  rni=2.e-3
-                  ni(i,k)=3.*qi(i,k)*gammnu/(4.*pi*rhobar*rni**3* &
-                  (exp(gammln(nu+deltastr+2.))))
-                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv* &
-                  exp(gammln(nu+betam))))**(1./betam)
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
-               END IF  
+               ci(i,k)=nu*ni(i,k)*cni
+               ai(i,k)=nu*ni(i,k)*ani
             END IF              ! q > qsmall
             
             betam=2.+deltastr
@@ -1947,95 +1803,11 @@ CONTAINS
                ani=ai(i,k)/(nu*ni(i,k))
                cni=ci(i,k)/(nu*ni(i,k))
 
-!     get deltastr from ci and ai
-
-               IF((log(ani)-log(ao)).gt. 0.01 .and.&
-                  (log(cni)-log(ao)).gt.0.001)THEN
-                  deltastr = (log(cni)-log(ao))/(log(ani)-log(ao))
-
-               ELSE
-                  deltastr = 1.
-               ENDIF
-
-               IF(masssizeflag .eq. 1 .or. &
-               sphrflag .eq. 1) deltastr = 1.0
-               IF(iaspect .eq. 1) deltastr = 0.8
-
-
-!     make sure deltastr is in reasonable limits
-!     if adjustment is needed, keep ai the same, adjust ci
-               
-!              IF(deltastr.lt.0.7)THEN
-!                  deltastr=0.7           
-!                  cni=ao**(1.-deltastr)*ani**deltastr
-!                  ci(i,k)=nu*ni(i,k)*cni
-
-!               ELSE IF(deltastr.gt.1.3)THEN
-                  
-!                  deltastr=1.3
-!                  cni=ao**(1.-deltastr)*ani**deltastr
-!                  ci(i,k)=nu*ni(i,k)*cni
-                  
-!               END IF
-
-              if(deltastr.lt.0.55) then
-                 voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
-                 (exp(gammln(NU+deltastr+2.)))/gammnu
-                 deltastr=0.55
-                 ani=((3.*voltmp*gammnu)/ &
-                      (4.*pi*ao**(1.-deltastr)*(exp(gammln(NU+deltastr+2.)))))** &
-                      (1./(2.+deltastr))
-                 ai(i,k)=max((NU*ni(i,k)*ani),1.e-20)
-                 ani=ai(i,k)/(NU*ni(i,k))
-              else if (deltastr.gt.1.5) then
-                 voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
-                       (exp(gammln(NU+deltastr+2.)))/gammnu
-                 deltastr=1.5
-                 ani=((3.*voltmp*gammnu)/ &
-                     (4.*pi*ao**(1.-deltastr)*(exp(gammln(NU+deltastr+2.)))))** &
-                     (1./(2.+deltastr))
-                 ai(i,k)=max((NU*ni(i,k)*ani),1.e-20)
-                 ani=ai(i,k)/(NU*ni(i,k))
-                 cni=ao**(1.-deltastr)*ani**deltastr
-                 ci(i,k)=max((NU*ni(i,k)*cni),1.e-20)
-                 cni=ci(i,k)/(nu*ni(i,k))
-              endif
-
-               betam=2.+deltastr
-               alphstr=ao**(1.-deltastr)
-               alphv=4./3.*pi*alphstr              
-               
-!     get avg ice density
-               rhobar = qi(i,k)*gammnu/(ni(i,k)*alphv* &
-               ani**betam*exp(gammln(nu+betam)))
-
-               IF(masssizeflag .eq. 1) rhobar = 920.
-               IF(sphrflag .eq. 1) rhobar = 920.
-               If(redden .eq. 1) rhoi = 500.
-!     check to make sure ice density in bounds
-!     if necessary adjust ani, then we also need to recalculate cni,
-!     assuming the same deltastr
-
-               IF(rhobar.gt.920.)THEN
-
-                  rhobar=920.
-                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
-                  exp(gammln(nu+betam))))**(1./betam)
-                  cni=ao**(1.-deltastr)*ani**deltastr
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
-
-               ELSE IF(rhobar.lt.50.)THEN
-
-                  rhobar=50.
-                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
-                  exp(gammln(nu+betam))))**(1./betam)
-                  cni=ao**(1.-deltastr)*ani**deltastr
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
-                  
-               END IF
-!     get rni
+               CALL DSTR_CHECK(ni(i,k),ani,cni,deltastr,iaspect,masssizeflag,sphrflag)
+               CALL RHO_CHECK(deltastr,qi(i,k),ni(i,k),ani,cni,masssizeflag,sphrflag,redden,&
+                    betam,alphstr,alphv,rhobar)
+               ci(i,k)=nu*ni(i,k)*cni
+               ai(i,k)=nu*ni(i,k)*ani
 
             END IF ! qi > qsmall
 
@@ -3610,7 +3382,157 @@ CONTAINS
       return
       END SUBROUTINE EVOLVE
 
+    !********************************************************
+    !THIS SUBROUTINE COMPUTES DELTASTR, ICE DENSITY, AND ICE
+    !EQUIVALENT VOL RADIUS AND SUBSEQUENTLY PERFORMS LIMIT
+    !CHECKS.
+    !********************************************************
+    SUBROUTINE ICE_CHECKS(ni,qi,ani,cni,rni,deltastr,rhobar,iaspect,&
+         masssizeflag,sphrflag,redden,betam,alphstr,alphv)
+                 
+      IMPLICIT NONE
+      INTEGER iaspect, masssizeflag, sphrflag, redden
+      REAL qi, ni, ani, cni, rni, deltastr, rhobar
+      REAL betam,alphstr,alphv
+      
+      CALL DSTR_CHECK(ni,ani,cni,deltastr,iaspect,masssizeflag,sphrflag)
+      CALL RHO_CHECK(deltastr,qi,ni,ani,cni,masssizeflag,sphrflag,redden,betam,alphstr,alphv,rhobar)
+      CALL R_CHECK(qi,ni,cni,ani,rni,rhobar,deltastr,masssizeflag,betam,alphstr,alphv)
+                 
 
+    END SUBROUTINE ICE_CHECKS
+
+    SUBROUTINE DSTR_CHECK(ni,ani,cni,deltastr,iaspect,masssizeflag,sphrflag)
+      
+      IMPLICIT NONE
+      INTEGER :: iaspect,masssizeflag,sphrflag
+      REAL ::  ani, cni, deltastr, voltmp, ai, ci, ni
+
+      !     get deltastr from cni and ani
+      !     deltastr = 1 for ice particles pre-diagnosed as spheres
+      
+      IF((log(ani)-log(ao)).gt. 0.01 &
+           .and.(log(cni)-log(ao)).gt.0.001)THEN
+         deltastr = (log(cni)-log(ao))/(log(ani)-log(ao))
+      ELSE
+         deltastr = 1.
+      ENDIF
+      
+      
+      IF(iaspect .eq. 1) deltastr = 0.8
+      IF(masssizeflag .eq. 1) deltastr=1.0
+      IF(sphrflag .eq. 1) deltastr = 1.0
+      
+               
+      if(deltastr.lt.0.55) then
+         voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
+              (exp(gammln(NU+deltastr+2.)))/gammnu
+         deltastr=0.55
+         ani=((3.*voltmp*gammnu)/ &
+              (4.*pi*ao**(1.-deltastr)*(exp(gammln(NU+deltastr+2.)))))** &
+              (1./(2.+deltastr))
+         ai=max((NU*ni*ani),1.e-20)
+         ani=ai/(NU*ni)
+      else if (deltastr.gt.1.5) then
+         voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
+              (exp(gammln(NU+deltastr+2.)))/gammnu
+         deltastr=1.5
+         ani=((3.*voltmp*gammnu)/ &
+              (4.*pi*ao**(1.-deltastr)*(exp(gammln(NU+deltastr+2.)))))** &
+              (1./(2.+deltastr))
+         ai=max((NU*ni*ani),1.e-20)
+         ani=ai/(NU*ni)
+         cni=ao**(1.-deltastr)*ani**deltastr
+         ci=max((NU*ni*cni),1.e-20)
+         cni=ci/(nu*ni)
+      endif
+      
+    END SUBROUTINE DSTR_CHECK
+
+    SUBROUTINE RHO_CHECK(deltastr,qi,ni,ani,cni,masssizeflag,sphrflag,redden,betam,alphstr,alphv,rhobar)
+      IMPLICIT NONE
+      INTEGER masssizeflag, sphrflag, redden
+      REAL deltastr, qi, ni, ani, cni
+      REAL alphstr, alphv, betam
+      REAL rhobar
+      
+      betam = 2.+deltastr
+      alphstr = ao**(1.-deltastr)
+      alphv = (4./3.)*pi*alphstr
+      
+      !     get avg ice density 
+               
+      rhobar = qi*gammnu/(ni*alphv* &
+           ani**betam*exp(gammln(nu+betam)))
+               
+      IF(masssizeflag .eq. 1.or.sphrflag.eq.2) rhobar = 920.
+      If(redden .eq. 1) rhoi = 500.
+
+      !     rhobar=500.
+      !     check bounds for ice density
+      IF(rhobar.gt.920.)THEN 
+                      
+         rhobar=920.
+         ani=((qi*gammnu)/(rhobar*ni*alphv*&
+              exp(gammln(nu+betam))))**(1./betam)
+         cni=ao**(1.-deltastr)*ani**deltastr
+                  
+      ELSE IF(rhobar.lt.50.)THEN
+                      
+         rhobar=50.
+         ani=((qi*gammnu)/(rhobar*ni*alphv*&
+              exp(gammln(nu+betam))))**(1./betam)
+         cni=ao**(1.-deltastr)*ani**deltastr
+                      
+      END IF
+
+              
+
+      
+    END SUBROUTINE RHO_CHECK
+
+    !     get rni (characteristic equivalent volume ice radius)
+    SUBROUTINE R_CHECK(qi,ni,cni,ani,rni,rhobar,deltastr,masssizeflag,betam,alphstr,alphv)
+      IMPLICIT NONE
+      INTEGER masssizeflag
+      REAL qi, ni, cni, ani, rhobar, deltastr
+      REAL rni
+      REAL alphstr, alphv, betam
+      
+      betam = 2.+deltastr
+      alphstr = ao**(1.-deltastr)
+      alphv = (4./3.)*pi*alphstr
+
+      rni = (qi*3./(ni*rhobar*4.*pi*&
+           (exp(gammln(nu+deltastr+2.))/gammnu)))**(1./3.)
+      
+      IF(masssizeflag .eq. 1)THEN
+         rni=ani
+         IF(cni.gt.ani)rni=cni
+      ENDIF
+      
+      !     make sure rni is within reasonable bounds,
+      
+      IF(rni.lt.2.e-6)THEN
+         
+         rni=2.e-6
+         ni=3.*qi*gammnu/(4.*pi*rhobar*rni**3.*&
+              (exp(gammln(nu+deltastr+2.))))
+         ani=((qi*gammnu)/(rhobar*ni*alphv* &
+              exp(gammln(nu+betam))))**(1./betam) 
+         cni=ao**(1.-deltastr)*ani**deltastr
+         
+      ELSE IF(rni.gt.2.e-3)THEN
+         
+         rni=2.e-3
+         ni=3.*qi*gammnu/(4.*pi*rhobar*rni**3.* &
+              (exp(gammln(nu+deltastr+2.))))
+         ani=((qi*gammnu)/(rhobar*ni*alphv* &
+              exp(gammln(nu+betam))))**(1./betam)
+         cni=ao**(1.-deltastr)*ani**deltastr
+         
+      END IF
+    END SUBROUTINE R_CHECK
 
 
 !------------------------------------------------------------------

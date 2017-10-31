@@ -183,7 +183,11 @@ PROGRAM MICROWRAPPER
     CLOUDFRZ=CLOUDFRZ,                  &
     PHI=PHI,                            &
     RHOICE=RHOICE,                      &
-    RELH=RELH                          &
+    RELH=RELH,                          &
+    CPLX=CPLX,                          &
+    PHIS=PHIS,                          &
+    RHOS=RHOS,                          &
+    CPLXS=CPLXS                         &
     ,IDS=1,IDE=1, JDS=1,JDE=1, KDS=1,KDE=1 &
     ,IMS=1,IME=1, JMS=1,JME=1, KMS=1,KME=1 &
     ,ITS=1,ITE=1, JTS=1,JTE=1, KTS=1,KTE=1 &

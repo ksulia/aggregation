@@ -680,6 +680,8 @@ CONTAINS
 
       DO i = its,ite
          DO k = kts,kte
+
+            !ICE CRYSTALS (MONOMERS)
             IF(qi(i,k).gt.qsmall.and.ni(i,k).gt.qsmall)THEN
                ni(i,k) = max(ni(i,k),qsmall)
                ai(i,k) = max(ai(i,k),qsmall)
@@ -687,7 +689,6 @@ CONTAINS
 
                ani = ((ai(i,k)**2)/(ci(i,k)*nu*ni(i,k)))**(1./3.)
                cni = ((ci(i,k)**2)/(ai(i,k)*nu*ni(i,k)))**(1./3.)
-
             ELSE 
                qi(i,k) = 0.0
                ni(i,k) = 0.0
@@ -698,6 +699,7 @@ CONTAINS
             ai(i,k) = nu*ni(i,k)*ani
             ci(i,k) = nu*ni(i,k)*cni
 
+            !SNOW (AGGREGATES)
             IF(snowflag .eq. 2)THEN
                IF(qs(i,k) .gt. qsmall .and. ns(i,k) .gt. qsmall)THEN
                   ns(i,k) = max(ns(i,k),qsmall)
@@ -717,14 +719,19 @@ CONTAINS
                cs(i,k) = 0.
             END IF
 
+            !CLOUD WATER
             IF(qc(i,k).lt.qsmall)THEN
                qc(i,k) = 0.
                nc(i,k) = 0.
             END IF
+
+            !RAIN
             IF(qr(i,k).lt.qsmall)THEN
                qr(i,k) = 0.
                nr(i,k) = 0.
             END IF
+
+            !GRAUPEL
             IF(qg(i,k).lt.qsmall)THEN
                qg(i,k) = 0.
                ng(i,k) = 0.
@@ -935,24 +942,26 @@ CONTAINS
                CDIST1 = nc(i,k)/gamma(pgam+1.)
             END IF              !qc >=qsmall
 !     SNOW---------------------------------------------------------------------------------
-            IF(qs(i,k).ge.qsmall)THEN
-               lams = (cons1*ns(i,k)/qs(i,k))**(1./DS)
-               n0s = ns(i,k)*lams
+            IF(snowflag .eq. 1)THEN
+               IF(qs(i,k).ge.qsmall)THEN
+                  lams = (cons1*ns(i,k)/qs(i,k))**(1./DS)
+                  n0s = ns(i,k)*lams
                   
-               IF(lams.lt.lammins)THEN
-                  lams = lammins
-                  n0s = lams**4*qs(i,k)/cons1
-                  ns(i,k) = n0s/lams
-               ELSE IF(lams.gt.lammaxs)THEN
-                  lams = lammaxs
-                  n0s = lams**4*qs(i,k)/cons1
-                  ns(i,k) = n0s/lams
-               END IF
-               qsdum = 2.*pi*n0s*rho(i,k)*(f1s/(lams*lams)+&
-               f2s*SQRT(asn(k)*rho(i,k)/mu)*sc**(1./3.)*cons10/&
-               (lams**cons35))
-            END IF           !qs >= qsmall
-
+                  IF(lams.lt.lammins)THEN
+                     lams = lammins
+                     n0s = lams**4*qs(i,k)/cons1
+                     ns(i,k) = n0s/lams
+                  ELSE IF(lams.gt.lammaxs)THEN
+                     lams = lammaxs
+                     n0s = lams**4*qs(i,k)/cons1
+                     ns(i,k) = n0s/lams
+                  END IF
+                  qsdum = 2.*pi*n0s*rho(i,k)*(f1s/(lams*lams)+&
+                       f2s*SQRT(asn(k)*rho(i,k)/mu)*sc**(1./3.)*cons10/&
+                       (lams**cons35))
+               END IF           !qs >= qsmall
+            END IF!snowflag
+            
             if(qg(i,k).ge.qsmall)then
                 lamg = (cons2*ng(i,k)/qg(i,k))**(1./DG)
                 n0g = ng(i,k)*lamg
@@ -1019,26 +1028,28 @@ CONTAINS
                   pre = 0.
                END IF        
             !     collection of snow by rain above freezing
-!     formula from Ikawa and Saito (1991)
-               IF(qr(i,k).ge.1.e-8.and.qs(i,k).ge.1.e-8)THEN
-                  ums = asn(k)*cons3/(lams**bs)
-                  umr = arn(k)*cons4/lamr**br
-                  uns = asn(k)*cons5/lams**bs
-                  unr = arn(k)*cons6/lamr**br
-!     set realistic limits on fallspeeds
+               !     formula from Ikawa and Saito (1991)
+               IF(snowflag .eq. 1)THEN
+                  IF(qr(i,k).ge.1.e-8.and.qs(i,k).ge.1.e-8)THEN
+                     ums = asn(k)*cons3/(lams**bs)
+                     umr = arn(k)*cons4/lamr**br
+                     uns = asn(k)*cons5/lams**bs
+                     unr = arn(k)*cons6/lamr**br
+                     !     set realistic limits on fallspeeds
                      
-                  dum = (rhosu/rho(i,k))**0.54
-                  ums = min(ums,1.2*dum)
-                  uns = min(uns,1.2*dum)
-                  umr = min(umr,9.1*dum)
-                  unr = min(unr,9.1*dum)
+                     dum = (rhosu/rho(i,k))**0.54
+                     ums = min(ums,1.2*dum)
+                     uns = min(uns,1.2*dum)
+                     umr = min(umr,9.1*dum)
+                     unr = min(unr,9.1*dum)
                      
-                  pracs = cons41*(SQRT((1.2*umr-0.95*ums)**2 + 0.08*&
-                  ums*umr)*rho(i,k)*n0rr*n0s/lamr**3* &
-                  (5./(lamr**3*lams)+2./(lamr*lamr*lams*lams)+0.5/&
-                  (lamr*lams**3)))
-               END IF        !qr & qs >=1.e-8
-!     collection of graupel by rain above freezing
+                     pracs = cons41*(SQRT((1.2*umr-0.95*ums)**2 + 0.08*&
+                          ums*umr)*rho(i,k)*n0rr*n0s/lamr**3* &
+                          (5./(lamr**3*lams)+2./(lamr*lamr*lams*lams)+0.5/&
+                          (lamr*lams**3)))
+                  END IF        !qr & qs >=1.e-8
+               END IF!snowflag
+                  !     collection of graupel by rain above freezing
                IF(graupel .eq. 1)then
                   IF(qr(i,k).ge.1.e-8.and.qg(i,k).ge.1.e-8)then
                      umg = agn(k)*cons7/(lamg**BG)
@@ -1067,18 +1078,20 @@ CONTAINS
                END IF
 !     melting of snow
 !     snow may persist above freezing, from Rutledge and Hobbs (1984)
-!     if supersat, snow melts to form rain
-               IF(qs(i,k).ge.1.e-8)THEN
-                  dum = -cpw/xxlf*(temp-273.15)*pracs
-                  psmlt = qsdum*kap*(273.15-temp)/xxlf+dum
-                  IF(qvqvs.lt.1.)THEN
-                     epss = qsdum*dv
-                     evpms = (qv(i,k)-qvs)*epss/ab
-                     evpms = max(evpms,psmlt)
-                     psmlt = psmlt-evpms
-                  END IF
-               END IF        !qs>=1.e-8
-               pracs = 0.
+               !     if supersat, snow melts to form rain
+               IF(snowflag .eq. 1)THEN
+                  IF(qs(i,k).ge.1.e-8)THEN
+                     dum = -cpw/xxlf*(temp-273.15)*pracs
+                     psmlt = qsdum*kap*(273.15-temp)/xxlf+dum
+                     IF(qvqvs.lt.1.)THEN
+                        epss = qsdum*dv
+                        evpms = (qv(i,k)-qvs)*epss/ab
+                        evpms = max(evpms,psmlt)
+                        psmlt = psmlt-evpms
+                     END IF
+                  END IF        !qs>=1.e-8
+                  pracs = 0.
+               END IF!snowflag
 
 !       melting of graupel
 !       graupel may persist above freezing, from Rutledge and Hobbs
@@ -1118,14 +1131,16 @@ CONTAINS
                   pre = pre*ratio
                END IF
 
-!     conservation of qs
-               dum = (pracs-evpms-psmlt)*dt !melting, evap, & accretion of snow
-               IF(dum.gt.qs(i,k).and.qs(i,k).ge.qsmall)THEN
-                  ratio = qs(i,k)/dum
-                  pracs = pracs*ratio
-                  psmlt = psmlt*ratio
-                  evpms = evpms*ratio
-               END IF
+               !     conservation of qs
+               IF(snowflag.eq.1)THEN
+                  dum = (pracs-evpms-psmlt)*dt !melting, evap, & accretion of snow
+                  IF(dum.gt.qs(i,k).and.qs(i,k).ge.qsmall)THEN
+                     ratio = qs(i,k)/dum
+                     pracs = pracs*ratio
+                     psmlt = psmlt*ratio
+                     evpms = evpms*ratio
+                  END IF
+               END IF!snowflag
 
 !     conservation of qg
                dum = (-pgmlt-evpmg-pracg)*dt
@@ -1146,11 +1161,13 @@ CONTAINS
                   dum = max(-1.,dum)
                   nsmlts = dum*ns(i,k)/dt
                END IF
-               IF(psmlt.lt.0.0)THEN
-                  dum = (psmlt)*dt/qs(i,k)
-                  dum = max(-1.,dum)
-                  nsmltr = dum*ns(i,k)/dt
-               END IF
+               IF(snowflag.eq.1)THEN
+                  IF(psmlt.lt.0.0)THEN
+                     dum = (psmlt)*dt/qs(i,k)
+                     dum = max(-1.,dum)
+                     nsmltr = dum*ns(i,k)/dt
+                  END IF
+               ENDIF
                IF(evpmg+pgmlt.lt.0.0)THEN
                   dum = (evpmg+pgmlt)*dt/qg(i,k)
                   dum = max(-1.,dum)
@@ -1177,24 +1194,28 @@ CONTAINS
                   nprc1 = min(nprc1,nprc)
                END IF
 
-!     aggregation of qs
-               IF(qs(i,k).ge.1.e-8)THEN
-                  nsagg = cons15*asn(k)*(qs(i,k)*rho(i,k))**&
-                  ((2.+BS)/3.)*(ns(i,k)*rho(i,k))**((4.-BS)/3.)&
-                  /rho(i,k)
+               !     aggregation of qs
+               IF(snowflag.eq.1)THEN
+                  IF(qs(i,k).ge.1.e-8)THEN
+                     nsagg = cons15*asn(k)*(qs(i,k)*rho(i,k))**&
+                          ((2.+BS)/3.)*(ns(i,k)*rho(i,k))**((4.-BS)/3.)&
+                          /rho(i,k)
+                  END IF
                END IF
 
-!     accretion of cloud droples onto snow/graupel
+!     accretion of cloud droplets onto snow/graupel
 !     use continuous growth equations with
 !     simple gravitational collection kernel ignoring snow
                if(graupel .eq. 1)then
-                  if(qs(i,k) .ge.1.e-8.and.qc(i,k).ge.qsmall)then
-                     psacws = cons13*asn(k)*qc(i,k)*rho(i,k)*n0s/&
-                         lams**(BS+3.)
-                     
-                     npsacws = cons13*asn(k)*nc(i,k)*rho(i,k)*n0s/&
-                         lams**(BS+3.)
-                  end if
+                  IF(snowflag.eq.1)THEN
+                     if(qs(i,k) .ge.1.e-8.and.qc(i,k).ge.qsmall)then
+                        psacws = cons13*asn(k)*qc(i,k)*rho(i,k)*n0s/&
+                             lams**(BS+3.)
+                        
+                        npsacws = cons13*asn(k)*nc(i,k)*rho(i,k)*n0s/&
+                             lams**(BS+3.)
+                     end if
+                  END IF
 !     collection of cloud water by graupel
                   if(qg(i,k).ge.1.e-8.and.qc(i,k).ge.qsmall)then
                      psacwg = cons14*agn(k)*qc(i,k)*rho(i,k)*n0g/&
@@ -1205,42 +1226,43 @@ CONTAINS
                   end if
                end if
                
-!     accretion of rain water by snow
-               IF(qr(i,k).ge.1.e-8.and.qs(i,k).ge.1.e-8)THEN
-                  ums = asn(k)*cons3/(lams**bs)
-                  umr = arn(k)*cons4/lamr**br
-                  uns = asn(k)*cons5/lams**bs
-                  unr = arn(k)*cons6/lamr**br
-!     set realistic limits on fallspeeds
+               !     accretion of rain water by snow
+               IF(snowflag.eq.1)THEN
+                  IF(qr(i,k).ge.1.e-8.and.qs(i,k).ge.1.e-8)THEN
+                     ums = asn(k)*cons3/(lams**bs)
+                     umr = arn(k)*cons4/lamr**br
+                     uns = asn(k)*cons5/lams**bs
+                     unr = arn(k)*cons6/lamr**br
+                     !     set realistic limits on fallspeeds
                      
-                  dum = (rhosu/rho(i,k))**0.54
-                  ums = min(ums,1.2*dum)
-                  uns = min(uns,1.2*dum)
-                  umr = min(umr,9.1*dum)
-                  unr = min(unr,9.1*dum)
+                     dum = (rhosu/rho(i,k))**0.54
+                     ums = min(ums,1.2*dum)
+                     uns = min(uns,1.2*dum)
+                     umr = min(umr,9.1*dum)
+                     unr = min(unr,9.1*dum)
                      
-                  pracs1 = cons41*(SQRT((1.2*umr-0.95*ums)**2 + 0.08*&
-                  ums*umr)*rho(i,k)*n0rr*n0s/lamr**3* &
-                  (5./(lamr**3*lams)+2./(lamr*lamr*lams*lams)+0.5/&
-                  (lamr*lams**3)))
-
-                  npracs1 = cons32*rho(i,k)*(1.7*(unr-uns)**2 + 0.3*&
-                  unr*uns)**0.5*n0rr*n0s*(1./(lamr**3*lams) + 1./&
-                  (lamr**2*lams**2)+1./(lamr*lams**3))
-
-                  pracs1 = min(pracs,qr(i,k)/dt)
-
-!     collection of snow by rain -- needed for graupel conversion calcs
-!     only calculate if snow and rain mixing ratios exceed 0.1 g/kg
-
-                  if(qs(i,k).ge.0.1e-3.and.qr(i,k).ge.0.1e-3)then
-                     psacr = cons31*(((1.2*umr-0.95*ums)**2+0.08*ums*&
-                        umr)**0.5*rho(i,k)*n0rr*n0s/lams**3*(5./(lams**3*&
-                        lamr)+2./(lams**2*lamr**2)+0.5/(lams*lamr**3)))
-                  end if
-
-               END IF
-
+                     pracs1 = cons41*(SQRT((1.2*umr-0.95*ums)**2 + 0.08*&
+                          ums*umr)*rho(i,k)*n0rr*n0s/lamr**3* &
+                          (5./(lamr**3*lams)+2./(lamr*lamr*lams*lams)+0.5/&
+                          (lamr*lams**3)))
+                     
+                     npracs1 = cons32*rho(i,k)*(1.7*(unr-uns)**2 + 0.3*&
+                          unr*uns)**0.5*n0rr*n0s*(1./(lamr**3*lams) + 1./&
+                          (lamr**2*lams**2)+1./(lamr*lams**3))
+                     
+                     pracs1 = min(pracs,qr(i,k)/dt)
+                     
+                     !     collection of snow by rain -- needed for graupel conversion calcs
+                     !     only calculate if snow and rain mixing ratios exceed 0.1 g/kg
+                     
+                     if(qs(i,k).ge.0.1e-3.and.qr(i,k).ge.0.1e-3)then
+                        psacr = cons31*(((1.2*umr-0.95*ums)**2+0.08*ums*&
+                             umr)**0.5*rho(i,k)*n0rr*n0s/lams**3*(5./(lams**3*&
+                             lamr)+2./(lams**2*lamr**2)+0.5/(lams*lamr**3)))
+                     end if
+                     
+                  END IF
+               END IF!snowflag
 !     collection of rainwater by graupel, Ikawa and Saito 1990
                IF(graupel.eq.1)then
                   IF(qr(i,k).ge.1.e-8.and.qg(i,k).ge.1.e-8)then
@@ -1272,39 +1294,41 @@ CONTAINS
 
 !     rime-splintering of snow
 !     hallet-mossop 1974
-!     number of splinters formed is based on mass of rimed water
+               !     number of splinters formed is based on mass of rimed water
+               
                IF (graupel .eq. 1)THEN
-                  if(qs(i,k).ge.0.1e-3)then
-                     if(qc(i,k).ge.0.5e-3.or.qr(i,k).ge.0.1e-3)then
-                        if(psacws.gt.0.0.or.pracs1.gt.0.0)then
-                           if(temp.le.270.16.and.temp.gt.268.16)then
-                              fmult = (270.16-temp)/2.
-                           else if(temp.ge.265.16.and.temp.le.268.16)then
-                              fmult = (temp-265.16)/3.
-                           else
-                              fmult = 0.0
+                  IF (snowflag .ne.0)THEN
+                     if(qs(i,k).ge.0.1e-3)then
+                        if(qc(i,k).ge.0.5e-3.or.qr(i,k).ge.0.1e-3)then
+                           if(psacws.gt.0.0.or.pracs1.gt.0.0)then
+                              if(temp.le.270.16.and.temp.gt.268.16)then
+                                 fmult = (270.16-temp)/2.
+                              else if(temp.ge.265.16.and.temp.le.268.16)then
+                                 fmult = (temp-265.16)/3.
+                              else
+                                 fmult = 0.0
+                              end if
+                           end if
+                           !     splintering from droplets accreted onto snow
+                           if(psacws.gt.0.0)then
+                              nmults = 35.e4*psacws*fmult*1000.
+                              qmults = nmults*mmult
+                              !     constrain so that transfer of mass from snow to ice cannot be more mass
+                              !     than was rimed onto snow
+                              qmults = min(qmults,psacws)
+                              psacws = psacws-qmults
+                           end if
+                           
+                           if(pracs.gt.0.)then
+                              nmultr = 35.e4*pracs1*fmult*1000.
+                              qmultr = nmultr*mmult
+                              
+                              qmultr = min(qmultr,pracs1)
+                              pracs1 = pracs1-qmultr
                            end if
                         end if
-!     splintering from droplets accreted onto snow
-                        if(psacws.gt.0.0)then
-                           nmults = 35.e4*psacws*fmult*1000.
-                           qmults = nmults*mmult
-!     constrain so that transfer of mass from snow to ice cannot be more mass
-!     than was rimed onto snow
-                           qmults = min(qmults,psacws)
-                           psacws = psacws-qmults
-                        end if
-                   
-                        if(pracs.gt.0.)then
-                           nmultr = 35.e4*pracs1*fmult*1000.
-                           qmultr = nmultr*mmult
-                           
-                           qmultr = min(qmultr,pracs1)
-                           pracs1 = pracs1-qmultr
-                        end if
                      end if
-                  end if
-              
+                  END IF!snowflag
 !     rime-splintering of graupel
                   if(qg(i,k).ge.0.1e-3)then
                      if(qc(i,k).ge.0.5e-3.or.qr(i,k).ge.0.1e-3)then
@@ -1337,44 +1361,45 @@ CONTAINS
                      end if
                   end if
 
-!     conversion of rimed cloud water onto snow to graupel
-                  if(psacws.gt.0.0)then
-                     if(qs(i,k).ge.0.1e-3.and.qc(i,k).ge.0.5e-3)then
-!     portion of riming converted to graupel
-                        pgsacw = min(psacws,cons17*dt*n0s*qc(i,k)*&
-                           qc(i,k)*asn(k)*asn(k)/(rho(i,k)*lams**&
-                           (2.*BS+2.)))
-                        
-                        dum = max(rhosn/(rhog-rhosn)*pgsacw,0.)
-                        nscng = dum/mg0*rho(i,k)
-                        nscng = min(nscng,ns(i,k)/dt)
-!     portion of riming left for snow
-                        psacws = psacws - pgsacw 
+                  !     conversion of rimed cloud water onto snow to graupel
+                  IF(snowflag.eq.1)THEN
+                     if(psacws.gt.0.0)then
+                        if(qs(i,k).ge.0.1e-3.and.qc(i,k).ge.0.5e-3)then
+                           !     portion of riming converted to graupel
+                           pgsacw = min(psacws,cons17*dt*n0s*qc(i,k)*&
+                                qc(i,k)*asn(k)*asn(k)/(rho(i,k)*lams**&
+                                (2.*BS+2.)))
+                           
+                           dum = max(rhosn/(rhog-rhosn)*pgsacw,0.)
+                           nscng = dum/mg0*rho(i,k)
+                           nscng = min(nscng,ns(i,k)/dt)
+                           !     portion of riming left for snow
+                           psacws = psacws - pgsacw 
+                        end if
                      end if
-                  end if
-                  
-!     conversion of rimed rain water onto snow converted to graupel
-                  if(pracs.gt.0.0)then
-                     if(qs(i,k).ge.0.1e-3.and.qr(i,k).ge.0.1e-3)then
-                        dum = cons18*(4./lams)**3*(4./lams)**3 &
-                           /(cons18*(4./lams)**3*(4./lams)**3+&
-                           cons19*(4./lamr)**3*(4./lamr)**3)
-                        dum = min(dum,1.)
-                        dum = max(dum,0.)
-                        pgracs = (1.-dum)*pracs1
-                        ngracs = (1.-dum)*npracs1
-                        ngracs = min(ngracs,nr(i,k)/dt)
-                        ngracs = min(ngracs,ns(i,k)/dt)
-                        
-                        pracs1 = pracs1 - pgracs
-                        npracs1 = npracs1 - ngracs
-                        
-                        psacr = psacr*(1.-dum)
+                     
+                     !     conversion of rimed rain water onto snow converted to graupel
+                     if(pracs.gt.0.0)then
+                        if(qs(i,k).ge.0.1e-3.and.qr(i,k).ge.0.1e-3)then
+                           dum = cons18*(4./lams)**3*(4./lams)**3 &
+                                /(cons18*(4./lams)**3*(4./lams)**3+&
+                                cons19*(4./lamr)**3*(4./lamr)**3)
+                           dum = min(dum,1.)
+                           dum = max(dum,0.)
+                           pgracs = (1.-dum)*pracs1
+                           ngracs = (1.-dum)*npracs1
+                           ngracs = min(ngracs,nr(i,k)/dt)
+                           ngracs = min(ngracs,ns(i,k)/dt)
+                           
+                           pracs1 = pracs1 - pgracs
+                           npracs1 = npracs1 - ngracs
+                           
+                           psacr = psacr*(1.-dum)
+                        end if
                      end if
-                  end if
 
-
-               END IF           !graupel
+                     END IF!snowflag
+                  END IF           !graupel
 
 !     accretion of cloud water by rain
 !     continuous collection eq with grav. coll. kernel, droplet fall spd neglected
@@ -1438,16 +1463,17 @@ CONTAINS
                   end if
                END IF
     
-!     deposition of qs
-               IF(qs(i,k).ge.qsmall)THEN
-                  epss = 2.*pi*n0s*rho(i,k)*dv*(f1s/(lams*lams)+&
-                     f2s*(asn(k)*rho(i,k)/mu)**0.5*sc**(1./3.)*cons10/&
-                     (lams**cons35))
-               ELSE
-                  epss = 0.0
-               END IF      
-               prds = epss*(qv(i,k)-qvi)/abi
-
+               !     deposition of qs
+               IF(snowflag.eq.1)THEN
+                  IF(qs(i,k).ge.qsmall)THEN
+                     epss = 2.*pi*n0s*rho(i,k)*dv*(f1s/(lams*lams)+&
+                          f2s*(asn(k)*rho(i,k)/mu)**0.5*sc**(1./3.)*cons10/&
+                          (lams**cons35))
+                  ELSE
+                     epss = 0.0
+                  END IF
+                  prds = epss*(qv(i,k)-qvi)/abi
+               END IF!snowflag
 !     deposition of graupel
                IF(graupel.eq.1)then
                   if(qg(i,k).ge.qsmall)then
@@ -2145,18 +2171,20 @@ CONTAINS
             fc(k) = min(fc(k),9.1*(rhosu/rho(i,k))**0.54)
             fnc(k) = min(fnc(k),9.1*(rhosu/rho(i,k))**0.54)
 
-!     calculate snow/aggregate sedimentation
-            IF(qs(i,k).ge.qsmall)THEN
-               dum = (cons1*ns(i,k)/qs(i,k))**(1./DS)
-               fs(k) = asn(k)*cons3/dum**BS
-               fns(k) = asn(k)*cons5/dum**BS
-            ELSE
-               fs(k) = 0.
-               fns(k) = 0.
-            END IF
-            fs(k) = min(fs(k),1.2*(rhosu/rho(i,k))**0.54)
-            fns(k) = min(fns(k),1.2*(rhosu/rho(i,k))**0.54)
-
+            !     calculate snow/aggregate sedimentation
+            IF(snowflag.eq.1)THEN
+               IF(qs(i,k).ge.qsmall)THEN
+                  dum = (cons1*ns(i,k)/qs(i,k))**(1./DS)
+                  fs(k) = asn(k)*cons3/dum**BS
+                  fns(k) = asn(k)*cons5/dum**BS
+               ELSE
+                  fs(k) = 0.
+                  fns(k) = 0.
+               END IF
+               fs(k) = min(fs(k),1.2*(rhosu/rho(i,k))**0.54)
+               fns(k) = min(fns(k),1.2*(rhosu/rho(i,k))**0.54)
+            END IF!snowflag
+            
             IF (qg(i,k).ge.qsmall) THEN
                dum = (cons2*ng(i,k)/qg(i,k))**(1./DG)
                dum=MAX(dum,LAMMING)
@@ -2461,20 +2489,22 @@ CONTAINS
                   log(gamma(pgam+1.))-log(gamma(pgam+4.)))/cons26
                END IF
             END IF
-
-            IF(qs(i,k).ge.qsmall)THEN
-               lams = (cons1*ns(i,k)/qs(i,k))**(1./DS)
-
-               IF(lams.lt.lammins)THEN
-                  lams = lammins
-                  n0s = lams**4*qs(i,k)/cons1
-                  ns(i,k) = n0s/lams
-               ELSE IF(lams.gt.lammaxs)THEN
-                  lams = lammaxs
-                  n0s = lams**4*qs(i,k)/cons1
-                  ns(i,k) = n0s/lams
+            
+            IF(snowflag.eq.1)THEN
+               IF(qs(i,k).ge.qsmall)THEN
+                  lams = (cons1*ns(i,k)/qs(i,k))**(1./DS)
+                  
+                  IF(lams.lt.lammins)THEN
+                     lams = lammins
+                     n0s = lams**4*qs(i,k)/cons1
+                     ns(i,k) = n0s/lams
+                  ELSE IF(lams.gt.lammaxs)THEN
+                     lams = lammaxs
+                     n0s = lams**4*qs(i,k)/cons1
+                     ns(i,k) = n0s/lams
+                  END IF
                END IF
-            END IF
+            END IF!snowflag
 
             if(qg(i,k).ge.qsmall)then
                 lamg = (cons2*ng(i,k)/qg(i,k))**(1./DG)

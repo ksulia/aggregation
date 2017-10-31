@@ -8,7 +8,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
 
       REAL, PRIVATE ::  rhoi    !BULK DENSITY OF CLOUD ICE
-      REAL, PRIVATE ::  nu      !DISTRIBUTION SHAPE FACTOR
+      REAL, PRIVATE ::  nu      !DISTRIBUTION SHAPE FACTOR, ICE
+      REAL, PRIVATE ::  nus     !DISTRIBUTION SHAPE FACTOR, SNOW
       REAL, PRIVATE ::  nuc     !ICE NUCLEATION CONCENTRAION (#/L)
       REAL, PRIVATE ::  rd      !GAS CONSTANT OF DRY AIR
       REAL, PRIVATE ::  cp      !SPECIFIC HEAT FOR DRY AIR (CONST P)
@@ -40,7 +41,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       REAL, PRIVATE :: f1r      ! VENTILATION PARAMETER FOR RAIN
       REAL, PRIVATE :: f2r      ! " "
       REAL, PRIVATE :: ar       ! FALL SPEED PARAMETER FOR RAIN
-      REAL, PRIVATE :: as       ! FALL SPEED PARAMETER FOR SNOW
+      REAL, PRIVATE :: ars       ! FALL SPEED PARAMETER FOR SNOW
       REAL, PRIVATE :: rhosu    ! APPROXIMATE AIR DENSITY NEAR 850MB
       REAL, PRIVATE :: rhow     ! DENSITY OF LIQUID WATER
       REAL, PRIVATE :: br       ! FALLSPEED PARAMETER FOR RAIN
@@ -85,6 +86,7 @@ CONTAINS
       rhoi = 920.
 !     rhoi = 500.
       nu = 4.
+      nus = 4.
       nuc = 1.
       rd = 287.15
       cp = 1005.
@@ -127,7 +129,7 @@ CONTAINS
 
 !     add constants for rain microphysics
       ar = 841.99667
-      as = 11.72
+      ars = 11.72
       rhosu = 85000./(287.15*273.15)
       rhow = 997.
       f1r = 0.78
@@ -180,7 +182,7 @@ CONTAINS
       
       SUBROUTINE MP_SULIAHARRINGTON(ID,ITIMESTEP,&
       TH, QV, QC, QR, QI, QS, QG, NC, NR, NI, NS,&
-      NG, AI, CI, RHO, PII, P, DT, DZ, HT, W,    &
+      NG, AI, CI, AS, CS, RHO, PII, P, DT, DZ, HT, W,    &
       ICEDEP, ICESUB, RAINEVAP, SNOWEVAP,        &
       SNOWMELT, SNOWDEP, SNOWSUB, SNOWACCR,      &
       CLOUDCOND, CLOUDEVAP, ICEMELT, ICENUC,     &
@@ -202,7 +204,7 @@ CONTAINS
 !     Temporary changed from INOUT to IN
 
       REAL, DIMENSION(ims:ime, kms:kme, jms:jme), INTENT(INOUT):: &
-      QV, QC, QR, QS, QG, QI, NC, NR, NS, NG, NI, AI, CI, TH
+      QV, QC, QR, QS, QG, QI, NC, NR, NS, NG, NI, AI, CI, AS, CS, TH
 !     , effcs, effis
 
       REAL, DIMENSION(ims:ime, kms:kme, jms:jme), INTENT(IN):: &
@@ -227,7 +229,7 @@ CONTAINS
       REAL, DIMENSION(its:ite, kts:kte, jts:jte) ::T,THL
 
       REAL, DIMENSION(its:ite, kts:kte) :: QV2D, QC2D, QR2D, QS2D, &
-      QG2D, QI2D, NC2D, NR2D, NS2D, NG2D, NI2D, AI2D, CI2D, T2D,   &
+      QG2D, QI2D, NC2D, NR2D, NS2D, NG2D, NI2D, AI2D, CI2D, AS2D, CS2D, T2D,   &
       RHO2D, P2D, ICEDEP2D, ICESUB2D, RAINEVAP2D, SNOWEVAP2D, SNOWMELT2D,&
       SNOWDEP2D, SNOWSUB2D, SNOWACCR2D, CLOUDCOND2D, CLOUDEVAP2D,  &
       ICEMELT2D, ICENUC2D, RAINFRZ2D, CLOUDFRZ2D, PHI2D, RHOICE2D, &
@@ -338,6 +340,8 @@ CONTAINS
                NG2D(i,k) = NG(i,k,j)
                AI2D(i,k) = AI(i,k,j)
                CI2D(i,k) = CI(i,k,j)
+               AS2D(i,k) = AS(i,k,j)
+               CS2D(i,k) = CS(i,k,j)
 
                T2D(i,k) = T(i,k,j)
 
@@ -366,15 +370,15 @@ CONTAINS
 
 
          CALL SULIAHARRINGTON_MICRO(T2D, DT, QV2D, QC2D, QR2D, QS2D,&
-         QG2D, QI2D, NC2D, NR2D, NS2D, NG2D, NI2D, AI2D, CI2D, P2D, &
-         RHO2D, DZQ, IMS, IME, JMS, JME, KMS, KME, ITS, ITE, JTS,   &
-         JTE, KTS, KTE, IDS, IDE, JDS, JDE, KDS, KDE, &
-         ITIMESTEP, ICEDEP2D, ICESUB2D, RAINEVAP2D, SNOWEVAP2D,      &
-         SNOWMELT2D, SNOWDEP2D, SNOWSUB2D, SNOWACCR2D, CLOUDCOND2D,  &
-         CLOUDEVAP2D, ICEMELT2D, ICENUC2D, RAINFRZ2D, CLOUDFRZ2D,    &
-         RSED, ISED, SSED, GSED, NAGGOUT2D, NRAGGOUT2D, NSAGGOUT2D, &
-         PRAOUT2D, PHI2D, RHOICE2D, RELH2D, IIN, CCN, IIN_SUM,IIN_SUMJ,&
-         PRECPRT, SNOWRT, SNOWPRT, GRPLPRT,CPLX2D,PHIS2D,RHOS2D,CPLXS2D)
+              QG2D, QI2D, NC2D, NR2D, NS2D, NG2D, NI2D, AI2D, CI2D, AS2D,&
+              CS2D, P2D, RHO2D, DZQ, IMS, IME, JMS, JME, KMS, KME, ITS,  &
+              ITE, JTS, JTE, KTS, KTE, IDS, IDE, JDS, JDE, KDS, KDE, &
+              ITIMESTEP, ICEDEP2D, ICESUB2D, RAINEVAP2D, SNOWEVAP2D,      &
+              SNOWMELT2D, SNOWDEP2D, SNOWSUB2D, SNOWACCR2D, CLOUDCOND2D,  &
+              CLOUDEVAP2D, ICEMELT2D, ICENUC2D, RAINFRZ2D, CLOUDFRZ2D,    &
+              RSED, ISED, SSED, GSED, NAGGOUT2D, NRAGGOUT2D, NSAGGOUT2D, &
+              PRAOUT2D, PHI2D, RHOICE2D, RELH2D, IIN, CCN, IIN_SUM,IIN_SUMJ,&
+              PRECPRT, SNOWRT, SNOWPRT, GRPLPRT,CPLX2D,PHIS2D,RHOS2D,CPLXS2D)
 
 !     TRANSFER 2D ARRAYS BACK TO 3D FOR WRF
 
@@ -396,6 +400,8 @@ CONTAINS
                NG(i,k,j) = NG2D(i,k)
                AI(i,k,j) = AI2D(i,k)
                CI(i,k,j) = CI2D(i,k)
+               AS(i,k,j) = AS2D(i,k)
+               CS(i,k,j) = CS2D(i,k)
                T(i,k,j) = T2D(i,k)
                TH(i,k,j) = T(i,k,j)/PII(i,k,j)
 
@@ -457,7 +463,7 @@ CONTAINS
          
 !*****************************************************************************
       SUBROUTINE SULIAHARRINGTON_MICRO(t, dt, qv, qc, qr, qs, qg, qi, nc,  &
-      nr, ns, ng, ni, ai, ci, p, rho, dzq, ims, ime, jms, jme, kms, kme,   &
+      nr, ns, ng, ni, ai, ci, as, cs, p, rho, dzq, ims, ime, jms, jme, kms, kme,   &
       its, ite, jts, jte, kts, kte, ids, ide, jds, jde, kds, kde,      &
       itimestep,icedep, icesub, rainevap,&
       snowevap, snowmelt, snowdep, snowsub, snowaccr, cloudcond,       &
@@ -476,7 +482,7 @@ CONTAINS
       itimestep
 
       REAL, DIMENSION(its:ite,kts:kte) :: &
-      qv, qc, qr, qs, qg, qi, nc, nr, ns, ng, ni, ai, ci, t
+      qv, qc, qr, qs, qg, qi, nc, nr, ns, ng, ni, ai, ci, as, cs, t
  
       REAL, DIMENSION(its:ite,kts:kte) :: &
       icedep, icesub, rainevap, snowevap, snowmelt, snowdep, snowsub,&
@@ -490,7 +496,7 @@ CONTAINS
 
       INTEGER i, k, iflag, nstep, n, iaspect, homofreeze,&
       masssizeflag, ipart, resupply, sphrflag, SEDON, RAINON,       &
-      DSTRCHECKS, ICE_CALCS, EVOLVE_ON, snow_on, ice_start_time,    &
+      DSTRCHECKS, ICE_CALCS, EVOLVE_ON, snowflag, ice_start_time,    &
       processes, LTRUE, CNUM, redden, nucleation, icontactflag,     &
       ccnflag, graupel, demottflag
 
@@ -573,6 +579,8 @@ CONTAINS
 
       REAL lammin, lammax, lamc, pgam
 
+      REAL ans, cns
+      
       REAL, DIMENSION(its:ite,kts:kte) :: vtrmi1, vtrni1, vtrli1, &
       effi1, vtrmc
 
@@ -642,7 +650,7 @@ CONTAINS
       sphrflag   = 0            !all ice assumed spheres
       redden     = 0
       homofreeze = 1            !homogeneous freezing
-      snow_on    = 1            !ice --> snow & aggregation
+      snowflag   = 1            !snow calculations, 0 = all snow off, 1 = only old snow, 2 = only new snow
       SEDON      = 1            !sedimentation
       EVOLVE_ON  = 1            !depositional growth
       RAINON     = 1            !rain processes
@@ -690,6 +698,25 @@ CONTAINS
             ai(i,k) = nu*ni(i,k)*ani
             ci(i,k) = nu*ni(i,k)*cni
 
+            IF(snowflag .eq. 2)THEN
+               IF(qs(i,k) .gt. qsmall .and. ns(i,k) .gt. qsmall)THEN
+                  ns(i,k) = max(ns(i,k),qsmall)
+                  as(i,k) = max(as(i,k),qsmall)
+                  cs(i,k) = max(cs(i,k),qsmall)
+
+                  ans = ((as(i,k)**2)/(cs(i,k)*nus*ns(i,k)))**(1./3.)
+                  cns = ((cs(i,k)**2)/(as(i,k)*nus*ns(i,k)))**(1./3.)
+                  as(i,k) = nus*ns(i,k)*ans
+                  cs(i,k) = nus*ns(i,k)*cns
+               END IF
+            END IF
+            IF(qs(i,k).lt.qsmall)THEN
+               qs(i,k) = 0.
+               ns(i,k) = 0.
+               as(i,k) = 0.
+               cs(i,k) = 0.
+            END IF
+
             IF(qc(i,k).lt.qsmall)THEN
                qc(i,k) = 0.
                nc(i,k) = 0.
@@ -697,10 +724,6 @@ CONTAINS
             IF(qr(i,k).lt.qsmall)THEN
                qr(i,k) = 0.
                nr(i,k) = 0.
-            END IF
-            IF(qs(i,k).lt.qsmall)THEN
-               qs(i,k) = 0.
-               ns(i,k) = 0.
             END IF
             IF(qg(i,k).lt.qsmall)THEN
                qg(i,k) = 0.
@@ -824,7 +847,7 @@ CONTAINS
 !     "a" parameter for cloud droplet fallspeed, based on Stokes Law
             acn(k) = g*rhow/(18.*mu)
 !     "a" parameter for snow fall speed
-            asn(k) = (rhosu/rho(i,k))**0.54*as
+            asn(k) = (rhosu/rho(i,k))**0.54*ars
 !     "a" parameter for graupel fall speed
             agn(k) = (rhosu/rho(i,k))**0.54*ag
 !     set droplet concentration (units of kg-1)

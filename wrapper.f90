@@ -160,6 +160,8 @@ PROGRAM MICROWRAPPER
     NG=QNG_CURR,                      &
     AI=AICE_CURR,                     &
     CI=CICE_CURR,                     &
+    AS=ASNOW_CURR,                     &
+    CS=CSNOW_CURR,                     &
     RHO=RHO,                            &  !*
     PII=PI_PHY,                         &  !*
     P=P,                                &  !*

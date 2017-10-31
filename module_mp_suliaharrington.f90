@@ -37,7 +37,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       REAL, PRIVATE :: f1r      ! VENTILATION PARAMETER FOR RAIN
       REAL, PRIVATE :: f2r      ! " "
       REAL, PRIVATE :: ar       ! FALL SPEED PARAMETER FOR RAIN
-      REAL, PRIVATE :: ans       ! FALL SPEED PARAMETER FOR SNOW
+      REAL, PRIVATE :: ars       ! FALL SPEED PARAMETER FOR SNOW
       REAL, PRIVATE :: rhosu    ! APPROXIMATE AIR DENSITY NEAR 850MB
       REAL, PRIVATE :: rhow     ! DENSITY OF LIQUID WATER
       REAL, PRIVATE :: br       ! FALLSPEED PARAMETER FOR RAIN
@@ -100,7 +100,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
 !     add constants for rain microphysics
       ar = 841.99667
-      ans = 11.72
+      ars = 11.72
       rhosu = 85000./(287.15*273.15)
       rhow = 997.
       f1r = 0.78
@@ -326,8 +326,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       INTEGER i, k, iflag, nstep, n, iaspect, homofreeze, &
       masssizeflag, ipart, resupply, sphrflag, SEDON, RAINON,       &
-      DSTRCHECKS, ICE_CALCS, EVOLVE_ON, snow_on, ice_start_time,    &
-      processes, LTRUE, CNUM, redden, snowflag, agg_flag
+      DSTRCHECKS, ICE_CALCS, EVOLVE_ON, snowflag, ice_start_time,    &
+      processes, LTRUE, CNUM, redden, agg_flag
 
 !     process rates: calculates changes due to nucleation,deposition,cond/evap
       REAL mnuccd               !change in qi freezing aerosol
@@ -431,7 +431,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       sphrflag   = 0            !all ice assumed spheres
       redden = 0
       homofreeze = 1            !homogeneous freezing
-      snow_on    = 1            !ice --> snow & aggregation
+      snowflag   = 1            !snow calculations, 0 = all snow off, 1 = only old snow, 2 = only new snow
       SEDON      = 1            !sedimentation
       EVOLVE_ON  = 1            !depositional growth
       RAINON     = 1            !rain processes
@@ -611,7 +611,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 !     "a" parameter for cloud droplet fallspeed, based on Stokes Law
             acn(k) = g*rhow/(18.*mu)
 !     "a" parameter for snow fall speed
-            asn(k) = (rhosu/rho(i,k))**0.54*ans
+            asn(k) = (rhosu/rho(i,k))**0.54*ars
 
             IF(qc(i,k).lt.qsmall.and.qi(i,k).lt.qsmall.and.&
                qs(i,k).lt.qsmall.and.qr(i,k).lt.qsmall)THEN
@@ -627,22 +627,22 @@ MODULE MODULE_MP_SULIAHARRINGTON
             nc(i,k) = max(0.,nc(i,k))
             ns(i,k) = max(0.,ns(i,k))
             IF(RAINON.eq.1) THEN
-            IF(qr(i,k).ge.qsmall)THEN
-               lamr = (pi*rhow*nr(i,k)/qr(i,k))**0.3333
-               n0rr = nr(i,k)*lamr
-               
-               IF(lamr .lt. lamminr)THEN
-                  lamr = lamminr
-                  n0rr = lamr**4*qr(i,k)/(pi*rhow)
-                  nr(i,k) = n0rr/lamr
-               ELSE IF(lamr.gt.lammaxr)THEN
-                  lamr = lammaxr
-                  n0rr = lamr**4*qr(i,k)/(pi*rhow)
-                  nr(i,k) = n0rr/lamr
+               IF(qr(i,k).ge.qsmall)THEN
+                  lamr = (pi*rhow*nr(i,k)/qr(i,k))**0.3333
+                  n0rr = nr(i,k)*lamr
+                  
+                  IF(lamr .lt. lamminr)THEN
+                     lamr = lamminr
+                     n0rr = lamr**4*qr(i,k)/(pi*rhow)
+                     nr(i,k) = n0rr/lamr
+                  ELSE IF(lamr.gt.lammaxr)THEN
+                     lamr = lammaxr
+                     n0rr = lamr**4*qr(i,k)/(pi*rhow)
+                     nr(i,k) = n0rr/lamr
+                  END IF
                END IF
             END IF
-            END IF
-!     CLOUD DROPLETS ---------------------------------------------------------------------
+            !     CLOUD DROPLETS ---------------------------------------------------------------------
 !     Martin et al. (1994) formula for pgam
             
             IF(qc(i,k).gt.qsmall)THEN
@@ -668,111 +668,115 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   log(GAMMA(pgam+1.))-log(GAMMA(pgam+4.)))/cons26
                END IF
             END IF              !qc >=qsmall
-!     SNOW---------------------------------------------------------------------------------
-            IF(qs(i,k).ge.qsmall)THEN
-               lams = (cons1*ns(i,k)/qs(i,k))**(1./DS)
-               n0s = ns(i,k)*lams
+            !     SNOW---------------------------------------------------------------------------------
+            IF(snowflag .eq. 1)THEN
+               IF(qs(i,k).ge.qsmall)THEN
+                  lams = (cons1*ns(i,k)/qs(i,k))**(1./DS)
+                  n0s = ns(i,k)*lams
                   
-               IF(lams.lt.lammins)THEN
-                  lams = lammins
-                  n0s = lams**4*qs(i,k)/cons1
-                  ns(i,k) = n0s/lams
-               ELSE IF(lams.gt.lammaxs)THEN
-                  lams = lammaxs
-                  n0s = lams**4*qs(i,k)/cons1
-                  ns(i,k) = n0s/lams
-               END IF
-               qsdum = 2.*pi*n0s*rho(i,k)*(f1s/(lams*lams)+&
-               f2s*SQRT(asn(k)*rho(i,k)/mu)*sc**0.3333*cons10/&
-               (lams**cons35))
-            END IF           !qs >= qsmall
+                  IF(lams.lt.lammins)THEN
+                     lams = lammins
+                     n0s = lams**4*qs(i,k)/cons1
+                     ns(i,k) = n0s/lams
+                  ELSE IF(lams.gt.lammaxs)THEN
+                     lams = lammaxs
+                     n0s = lams**4*qs(i,k)/cons1
+                     ns(i,k) = n0s/lams
+                  END IF
+                  qsdum = 2.*pi*n0s*rho(i,k)*(f1s/(lams*lams)+&
+                       f2s*SQRT(asn(k)*rho(i,k)/mu)*sc**0.3333*cons10/&
+                       (lams**cons35))
+               END IF           !qs >= qsmall
+            END IF!snowflag
                  
             IF(temp.ge.273.15)THEN
                !     autoconversion of cloud liquid water to rain
                IF(RAINON.eq.1)THEN
-               IF(qc(i,k).ge.1.E-6)THEN
-!     formula from khairoutdinov and kogan 2000, mwr
-                  prc=1350.*qc(i,k)**2.47*(nc(i,k)/1.e6*&
-                  rho(i,k))**(-1.79)
-              
-                  nprc1 = prc/cons29
-                  nprc = prc/(qc(i,k)/nc(i,k))
+                  IF(qc(i,k).ge.1.E-6)THEN
+                     !     formula from khairoutdinov and kogan 2000, mwr
+                     prc=1350.*qc(i,k)**2.47*(nc(i,k)/1.e6*&
+                          rho(i,k))**(-1.79)
+                     
+                     nprc1 = prc/cons29
+                     nprc = prc/(qc(i,k)/nc(i,k))
+                     
+                     nprc = min(nprc,nc(i,k)/dt)
+                     nprc1 = min(nprc1,nprc)
+                  END IF
+                  !     accretion of cloud water by rain
+                  !     continuous collection eq with grav. coll. kernel, droplet fall spd neglected
                   
-                  nprc = min(nprc,nc(i,k)/dt)
-                  nprc1 = min(nprc1,nprc)
-               END IF
-!     accretion of cloud water by rain
-!     continuous collection eq with grav. coll. kernel, droplet fall spd neglected
-
-               IF(qr(i,k).ge.1.E-8 .and. qc(i,k).ge.1.E-8)THEN
-                  dum=(qc(i,k)*qr(i,k))
-                  pra = 67.*dum**1.15
-                  npra = pra/qc(i,k)*nc(i,k)
-               END IF
-               
-!     self-collection of rain drops
-               IF(qr(i,k).ge.1.e-8)THEN
-                  dum1 = 300.e-6
-                  IF(1./lamr.lt.dum1)THEN
-                     dum = 1.
-                  ELSE IF(1./lamr.ge.dum1)THEN
-                     dum = 2.-exp(2300.*(1./lamr-dum1))
+                  IF(qr(i,k).ge.1.E-8 .and. qc(i,k).ge.1.E-8)THEN
+                     dum=(qc(i,k)*qr(i,k))
+                     pra = 67.*dum**1.15
+                     npra = pra/qc(i,k)*nc(i,k)
                   END IF
-                  nragg = -5.78*dum*nr(i,k)*qr(i,k)*rho(i,k)
-               END IF
-!     evaporation of rain (RUTLEDGE AND HOBBS 1983)
-               
-               IF(qr(i,k).ge.qsmall)THEN
-                  epsr = 2.*pi*n0rr*rho(i,k)*dv*(f1r/(lamr*lamr)+f2r*&
-                  SQRT(arn(k)*rho(i,k)/mu)*sc**0.33333*cons9/&
-                  (lamr**cons34))
-               ELSE
-                  epsr = 0.
-               END IF
-!     no condensation onto rain, only evap allowed
-               
-               IF (qv(i,k).lt.qvs) THEN
-                  pre = min((epsr*(qv(i,k)-qvs)/ab),0.)
-               ELSE
-                  pre = 0.
-               END IF        
-            !     collection of snow by rain above freezing
-!     formula from Ikawa and Saito (1991)
-               IF(qr(i,k).ge.1.e-8.and.qs(i,k).ge.1.e-8)THEN
-                  ums = asn(k)*cons3/(lams**bs)
-                  umr = arn(k)*cons4/lamr**br
-                  uns = asn(k)*cons5/lams**bs
-                  unr = arn(k)*cons6/lamr**br
-!     set realistic limits on fallspeeds
-                     
-                  dum = (rhosu/rho(i,k))**0.54
-                  ums = min(ums,1.2*dum)
-                  uns = min(uns,1.2*dum)
-                  umr = min(umr,9.1*dum)
-                  unr = min(unr,9.1*dum)
-                     
-                  pracs = cons41*(SQRT((1.2*umr-0.95*ums)**2 + 0.08*&
-                  ums*umr)*rho(i,k)*n0rr*n0s/lamr**3* &
-                  (5./(lamr**3*lams)+2./(lamr*lamr*lams*lams)+0.5/&
-                  (lamr*lams**3)))
-               END IF        !qr & qs >=1.e-8
-               
-!     melting of snow
-!     snow may persist above freezing, from Rutledge and Hobbs (1984)
-!     if supersat, snow melts to form rain
-               IF(qs(i,k).ge.1.e-8)THEN
-                  dum = -cpw/xxlf*(temp-273.15)*pracs
-                  psmlt = qsdum*kap*(273.15-temp)/xxlf+dum
-                  IF(qvqvs.lt.1.)THEN
-                     epss = qsdum*dv
-                     evpms = (qv(i,k)-qvs)*epss/ab
-                     evpms = max(evpms,psmlt)
-                     psmlt = psmlt-evpms
+                  
+                  !     self-collection of rain drops
+                  IF(qr(i,k).ge.1.e-8)THEN
+                     dum1 = 300.e-6
+                     IF(1./lamr.lt.dum1)THEN
+                        dum = 1.
+                     ELSE IF(1./lamr.ge.dum1)THEN
+                        dum = 2.-exp(2300.*(1./lamr-dum1))
+                     END IF
+                     nragg = -5.78*dum*nr(i,k)*qr(i,k)*rho(i,k)
                   END IF
-               END IF        !qs>=1.e-8
-               pracs = 0.
-               END IF
-!     check cloud water conservation, update qc and qr with process rates
+                  !     evaporation of rain (RUTLEDGE AND HOBBS 1983)
+                  
+                  IF(qr(i,k).ge.qsmall)THEN
+                     epsr = 2.*pi*n0rr*rho(i,k)*dv*(f1r/(lamr*lamr)+f2r*&
+                          SQRT(arn(k)*rho(i,k)/mu)*sc**0.33333*cons9/&
+                          (lamr**cons34))
+                  ELSE
+                     epsr = 0.
+                  END IF
+                  !     no condensation onto rain, only evap allowed
+                  
+                  IF (qv(i,k).lt.qvs) THEN
+                     pre = min((epsr*(qv(i,k)-qvs)/ab),0.)
+                  ELSE
+                     pre = 0.
+                  END IF
+                  !     collection of snow by rain above freezing
+                  !     formula from Ikawa and Saito (1991)
+                  IF(snowflag.eq.1)THEN
+                     IF(qr(i,k).ge.1.e-8.and.qs(i,k).ge.1.e-8)THEN
+                        ums = asn(k)*cons3/(lams**bs)
+                        umr = arn(k)*cons4/lamr**br
+                        uns = asn(k)*cons5/lams**bs
+                        unr = arn(k)*cons6/lamr**br
+                        !     set realistic limits on fallspeeds
+                        
+                        dum = (rhosu/rho(i,k))**0.54
+                        ums = min(ums,1.2*dum)
+                        uns = min(uns,1.2*dum)
+                        umr = min(umr,9.1*dum)
+                        unr = min(unr,9.1*dum)
+                        
+                        pracs = cons41*(SQRT((1.2*umr-0.95*ums)**2 + 0.08*&
+                             ums*umr)*rho(i,k)*n0rr*n0s/lamr**3* &
+                             (5./(lamr**3*lams)+2./(lamr*lamr*lams*lams)+0.5/&
+                             (lamr*lams**3)))
+                     END IF        !qr & qs >=1.e-8
+                     
+                     !     melting of snow
+                     !     snow may persist above freezing, from Rutledge and Hobbs (1984)
+                     !     if supersat, snow melts to form rain
+                     IF(qs(i,k).ge.1.e-8)THEN
+                        dum = -cpw/xxlf*(temp-273.15)*pracs
+                        psmlt = qsdum*kap*(273.15-temp)/xxlf+dum
+                        IF(qvqvs.lt.1.)THEN
+                           epss = qsdum*dv
+                           evpms = (qv(i,k)-qvs)*epss/ab
+                           evpms = max(evpms,psmlt)
+                           psmlt = psmlt-evpms
+                        END IF
+                     END IF        !qs>=1.e-8
+                     pracs = 0.
+                  END IF!snowflag
+               END IF!RAINON
+               !     check cloud water conservation, update qc and qr with process rates
                
                dum = (prc+pra)*dt
                IF(dum.gt.qc(i,k).and.qc(i,k).ge.qsmall)THEN
@@ -780,7 +784,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   prc = prc*ratio
                   pra = pra*ratio
                END IF
-            
+               
 !     conservation of qr, NOTE: pre is a negative number
 
                dum = (-pre-pra-prc+psmlt)*dt
@@ -788,89 +792,94 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   ratio = (qr(i,k)/dt+pra+prc+pracs-psmlt)/(-pre)
                   pre = pre*ratio
                END IF
-
-!     conservation of qs
-               dum = (pracs-evpms-psmlt)*dt !melting, evap, & accretion of snow
-               IF(dum.gt.qs(i,k).and.qs(i,k).ge.qsmall)THEN
-                  ratio = qs(i,k)/dum
-                  pracs = pracs*ratio
-                  psmlt = psmlt*ratio
-                  evpms = evpms*ratio
-               END IF
-
+               
+               !     conservation of qs
+               IF(snowflag .eq. 1)THEN
+                  dum = (pracs-evpms-psmlt)*dt !melting, evap, & accretion of snow
+                  IF(dum.gt.qs(i,k).and.qs(i,k).ge.qsmall)THEN
+                     ratio = qs(i,k)/dum
+                     pracs = pracs*ratio
+                     psmlt = psmlt*ratio
+                     evpms = evpms*ratio
+                  END IF
+               END IF!snowflag
+            
             ELSE !temp
                IF (RAINON.eq.1)THEN
-!     autoconversion of cloud liquid water to rain
-               IF(qc(i,k).ge.1.E-6)THEN
-!     formula from khairoutdinov and kogan 2000, mwr
-                  prc=1350.*qc(i,k)**2.47*(nc(i,k)/1.e6*&
-                  rho(i,k))**(-1.79)
-
-                  nprc1 = prc/cons29
-                  nprc = prc/(qc(i,k)/nc(i,k))
-             
-                  nprc = min(nprc,nc(i,k)/dt)
-                  nprc1 = min(nprc1,nprc)
-               END IF
-               
-!     accretion of cloud water by rain
-!     continuous collection eq with grav. coll. kernel, droplet fall spd neglected
-               
-               IF(qr(i,k).ge.1.E-8 .and. qc(i,k).ge.1.E-8)THEN
-                  dum=(qc(i,k)*qr(i,k))
-                  pra = 67.*dum**1.15
-                  npra = pra/qc(i,k)*nc(i,k)
-               END IF
-               
-!     self-collection of rain drops
-               IF(qr(i,k).ge.1.e-8)THEN
-                  dum1 = 300.e-6
-                  IF(1./lamr.lt.dum1)THEN
-                     dum = 1.
-                  ELSE IF(1./lamr.ge.dum1)THEN
-                     dum = 2.-exp(2300.*(1./lamr-dum1))
+                  !     autoconversion of cloud liquid water to rain
+                  IF(qc(i,k).ge.1.E-6)THEN
+                     !     formula from khairoutdinov and kogan 2000, mwr
+                     prc=1350.*qc(i,k)**2.47*(nc(i,k)/1.e6*&
+                          rho(i,k))**(-1.79)
+                     
+                     nprc1 = prc/cons29
+                     nprc = prc/(qc(i,k)/nc(i,k))
+                     
+                     nprc = min(nprc,nc(i,k)/dt)
+                     nprc1 = min(nprc1,nprc)
                   END IF
-                  nragg = -5.78*dum*nr(i,k)*qr(i,k)*rho(i,k)
-               END IF
+                  
+                  !     accretion of cloud water by rain
+                  !     continuous collection eq with grav. coll. kernel, droplet fall spd neglected
+                  
+                  IF(qr(i,k).ge.1.E-8 .and. qc(i,k).ge.1.E-8)THEN
+                     dum=(qc(i,k)*qr(i,k))
+                     pra = 67.*dum**1.15
+                     npra = pra/qc(i,k)*nc(i,k)
+                  END IF
+                  
+                  !     self-collection of rain drops
+                  IF(qr(i,k).ge.1.e-8)THEN
+                     dum1 = 300.e-6
+                     IF(1./lamr.lt.dum1)THEN
+                        dum = 1.
+                     ELSE IF(1./lamr.ge.dum1)THEN
+                        dum = 2.-exp(2300.*(1./lamr-dum1))
+                     END IF
+                     nragg = -5.78*dum*nr(i,k)*qr(i,k)*rho(i,k)
+                  END IF
 !     evaporation of rain (RUTLEDGE AND HOBBS 1983)
-               
-               IF(qr(i,k).ge.qsmall)THEN
-                  epsr = 2.*pi*n0rr*rho(i,k)*dv*(f1r/(lamr*lamr)+f2r*&
-                  SQRT(arn(k)*rho(i,k)/mu)*sc**0.33333*cons9/&
-                  (lamr**cons34))
-               ELSE
-                  epsr = 0.
-               END IF
+                  
+                  IF(qr(i,k).ge.qsmall)THEN
+                     epsr = 2.*pi*n0rr*rho(i,k)*dv*(f1r/(lamr*lamr)+f2r*&
+                          SQRT(arn(k)*rho(i,k)/mu)*sc**0.33333*cons9/&
+                          (lamr**cons34))
+                  ELSE
+                     epsr = 0.
+                  END IF
                
 !     no condensation onto rain, only evap allowed
                
-               IF (qv(i,k).lt.qvs) THEN
-                  pre = min((epsr*(qv(i,k)-qvs)/ab),0.)
-               ELSE
-                  pre = 0.
-               END IF        
-!               end if
-!     deposition of qs
-!               IF(qs(i,k).ge.qsmall)THEN
-!                  epss = qsdum*dv
-!                  prds = epss*(qv(i,k)-qvi)/abi
-!               END IF      
-!               dum = (qv(i,k)-qvi)/dt
-!               IF((dum.gt.0..and.prds.gt.dum*FUDGE).or.&
-!                  (dum.lt.0..and.prds.lt.dum*FUDGE))THEN
-!                  prds = FUDGE*dum
-!               END IF
-!               IF(prds.lt.0.)THEN
-!                  eprds = prds
-!                  prds = 0.
-!               END IF
-               END IF
-!     aggregation of qs
-               IF(qs(i,k).ge.1.e-8)THEN
-                  nsagg = cons15*asn(k)*(qs(i,k)*rho(i,k))**&
-                  ((2.+BS)/3.)*(ns(i,k)*rho(i,k))**((4.-BS)/3.)&
-                  /rho(i,k)
-               END IF
+                  IF (qv(i,k).lt.qvs) THEN
+                     pre = min((epsr*(qv(i,k)-qvs)/ab),0.)
+                  ELSE
+                     pre = 0.
+                  END IF
+               !               end if
+               END IF!RAINON
+               IF(snowflag.eq.1)THEN
+                  !     deposition of qs
+                  !               IF(qs(i,k).ge.qsmall)THEN
+                  !                  epss = qsdum*dv
+                  !                  prds = epss*(qv(i,k)-qvi)/abi
+                  !               END IF      
+                  !               dum = (qv(i,k)-qvi)/dt
+                  !               IF((dum.gt.0..and.prds.gt.dum*FUDGE).or.&
+                  !                  (dum.lt.0..and.prds.lt.dum*FUDGE))THEN
+                  !                  prds = FUDGE*dum
+                  !               END IF
+                  !               IF(prds.lt.0.)THEN
+                  !                  eprds = prds
+                  !                  prds = 0.
+                  !               END IF
+               
+                  !     aggregation of qs
+                  IF(qs(i,k).ge.1.e-8)THEN
+                     nsagg = cons15*asn(k)*(qs(i,k)*rho(i,k))**&
+                          ((2.+BS)/3.)*(ns(i,k)*rho(i,k))**((4.-BS)/3.)&
+                          /rho(i,k)
+                  END IF
+               END IF!snowflag
                
 !     check cloud water conservation, update qc and qr with process rates
             
@@ -1418,17 +1427,19 @@ MODULE MODULE_MP_SULIAHARRINGTON
                fnc(k) = 0.
              END IF
             
-!     calculate snow/aggregate sedimentation
-            IF(qs(i,k).ge.qsmall)THEN
-               dum = (cons1*ns(i,k)/qs(i,k))**(1./DS)
-               fs(k) = asn(k)*cons3/dum**BS
-               fns(k) = asn(k)*cons5/dum**BS
-               fs(k) = min(fs(k),1.2*(rhosu/rho(i,k))**0.54)
-               fns(k) = min(fns(k),1.2*(rhosu/rho(i,k))**0.54)
-            ELSE
-               fs(k) = 0.
-               fns(k) = 0.
-            END IF
+             !     calculate snow/aggregate sedimentation
+             IF(snowflag.eq.1)THEN
+                IF(qs(i,k).ge.qsmall)THEN
+                   dum = (cons1*ns(i,k)/qs(i,k))**(1./DS)
+                   fs(k) = asn(k)*cons3/dum**BS
+                   fns(k) = asn(k)*cons5/dum**BS
+                   fs(k) = min(fs(k),1.2*(rhosu/rho(i,k))**0.54)
+                   fns(k) = min(fns(k),1.2*(rhosu/rho(i,k))**0.54)
+                ELSE
+                   fs(k) = 0.
+                   fns(k) = 0.
+                END IF
+             END IF!snowflag
 
 
 !     calculate number of split time steps
@@ -1632,20 +1643,22 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   log(gamma(pgam+1.))-log(gamma(pgam+4.)))/cons26
                END IF
             END IF
-
-            IF(qs(i,k).ge.qsmall)THEN
-               lams = (cons1*ns(i,k)/qs(i,k))**(1./DS)
-
-               IF(lams.lt.lammins)THEN
-                  lams = lammins
-                  n0s = lams**4*qs(i,k)/cons1
-                  ns(i,k) = n0s/lams
-               ELSE IF(lams.gt.lammaxs)THEN
-                  lams = lammaxs
-                  n0s = lams**4*qs(i,k)/cons1
-                  ns(i,k) = n0s/lams
+            
+            IF(snowflag.eq.1)THEN
+               IF(qs(i,k).ge.qsmall)THEN
+                  lams = (cons1*ns(i,k)/qs(i,k))**(1./DS)
+                  
+                  IF(lams.lt.lammins)THEN
+                     lams = lammins
+                     n0s = lams**4*qs(i,k)/cons1
+                     ns(i,k) = n0s/lams
+                  ELSE IF(lams.gt.lammaxs)THEN
+                     lams = lammaxs
+                     n0s = lams**4*qs(i,k)/cons1
+                     ns(i,k) = n0s/lams
+                  END IF
                END IF
-            END IF
+            END IF!snowflag
 
          END DO
 

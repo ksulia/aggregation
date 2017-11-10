@@ -579,7 +579,9 @@ CONTAINS
 
       REAL lammin, lammax, lamc, pgam
 
-      REAL ans, cns, rns, rhobars, deltastrs, vs, swci
+      !snow characteristics (aggregate microphysics)
+      REAL ans, cns, rns, rhobars, deltastrs, vs, swci, swcf, phisf, rnsf, &
+           vtbarbs, vtbarbms, vtbarblens, ards, ansf, crds, cnsf, phiis
       
       REAL, DIMENSION(its:ite,kts:kte) :: vtrmi1, vtrni1, vtrli1, &
       effi1, vtrmc
@@ -1671,41 +1673,41 @@ CONTAINS
                   CALL ICE_CHECKS(2,ns(i,k),qs(i,k),ans,cns,rns,deltastrs,rhobars,&
                        iaspect,masssizeflag,sphrflag,redden,betam,alphstr,alphv)
                   
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
+                  cs(i,k)=nus*ns(i,k)*cns
+                  as(i,k)=nus*ns(i,k)*ans
                   
                   
                   !     get iwc to calculate iwc tendency
                   !     by substracting final and initial values
-                  vi = 4./3.*pi*rni**3.*exp(gammln(nu+deltastr+2.))/gammnu 
-                  iwci = ni(i,k)*rhobar*vi*rho(i,k)
+                  vs = 4./3.*pi*rns**3.*exp(gammln(nus+deltastrs+2.))/exp(gammln(nus)) 
+                  swci = ns(i,k)*rhobars*vs*rho(i,k)
                   
                   IF(iaspect .eq. 1) igr = .27
                   IF(sphrflag .eq. 1) igr=1.0
-                  If(redden .eq. 1) rhoi = 500.
+                  If(redden .eq. 1) rhobars = 100.
                   !     calculate number concentration from number mixing ratio
                   
                   IF(EVOLVE_ON .eq. 1) THEN
                      
-                     nidum = ni(i,k)*rho(i,k)
+                     nidum = ns(i,k)*rho(i,k)
                      
-                     CALL EVOLVE(2,ani,nidum,sui,sup,qvv,temp,press,igr,dt,iwcf,&
-                          cnf,iwci,phii,phif,cni,rni,rnf,anf,deltastr,mu,&
-                          rhobar,vtbarb,vtbarbm,alphstr,vtbarblen,rhoa,i,k,iaspect&
+                     CALL EVOLVE(2,ans,nidum,sui,sup,qvv,temp,press,igr,dt,swcf,&
+                          cnsf,swci,phiis,phisf,cns,rns,rnsf,ans,deltastrs,mu,&
+                          rhobars,vtbarbs,vtbarbms,alphstr,vtbarblens,rhoa,i,k,iaspect&
                           ,masssizeflag,ipart,sphrflag,redden,itimestep) 
                      
                      betam = deltastr + 2.0
                      alphstr = ao**(1.-deltastr)
                      alphv = 4./3.*pi*alphstr
                      
-                     phi(i,k)=phif
+                     phis(i,k)=phisf
                      
                      !     get deposition/sublimation process rates for qi, ai, and ci
                      !     deposition rate for ice [=] kg/kg/s (mixing ratio rate)
                      
-                     prd=(iwcf-iwci)/rho(i,k)/dt              
-                     ard=(anf-ani)*nu*ni(i,k)/dt
-                     crd=(cnf-cni)*nu*ni(i,k)/dt 
+                     prds=(swcf-swci)/rho(i,k)/dt              
+                     ards=(ansf-ans)*nus*ns(i,k)/dt
+                     crds=(cnsf-cns)*nus*ns(i,k)/dt 
                   END IF           !EVOLVE_ON
                END IF              !snow is present
             END IF!snowflag

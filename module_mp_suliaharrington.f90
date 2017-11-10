@@ -325,7 +325,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
 
       INTEGER i, k, iflag, nstep, n, iaspect, homofreeze, &
-      masssizeflag, ipart, resupply, sphrflag, SEDON, RAINON,       &
+      ipart, resupply, sphrflag, SEDON, RAINON,       &
       DSTRCHECKS, ICE_CALCS, EVOLVE_ON, snowflag, ice_start_time,    &
       processes, LTRUE, CNUM, redden, agg_flag
 
@@ -422,7 +422,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
       ,1.46114,  1.47097,  1.48087, 1.50105,  1.50087,  1.51098/
 
       resupply=0
-      masssizeflag=0
       ipart=1                   !0 for RAMS dendrites and needles (Walko et al., 1995)
 !     1 for RAMS plates and columns (Walko et al., 1995)
 !     2 for Mitchell's mass relations (hex plates, columns)
@@ -947,7 +946,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                
                !check that deltastr, rhobar, and rni are within reasonable bounds
                CALL ICE_CHECKS(1,ni(i,k),qi(i,k),ani,cni,rni,deltastr,rhobar,&
-                    iaspect,masssizeflag,sphrflag,redden,betam,alphstr,alphv)
+                    iaspect,sphrflag,redden,betam,alphstr,alphv)
 
                ci(i,k)=nu*ni(i,k)*cni
                ai(i,k)=nu*ni(i,k)*ani
@@ -957,9 +956,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
 !     by substracting final and initial values
                vi = 4./3.*pi*rni**3.*exp(gammln(nu+deltastr+2.))/gammnu 
                iwci = ni(i,k)*rhobar*vi*rho(i,k)
-!     IF(masssizeflag.eq.1)&
-!     iwci=ni(i,k)*rho(i,k)*alpham*rni**betam*&
-!     (gammnu/exp(gammln(nu+deltastr+2.)))**(3./betam) 
                
 !     calculate the particle inherent growth ratio (IGR) based on temp
 !     igr=1 for ice particles pre-diagnosed as spheres
@@ -977,7 +973,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   CALL EVOLVE(1,ani,nidum,sui,sup,qvv,temp,press,igr,dt,iwcf,&
                   cnf,iwci,phii,phif,cni,rni,rnf,anf,deltastr,mu,&
                   rhobar,vtbarb,vtbarbm,alphstr,vtbarblen,rhoa,i,k,iaspect&
-                  ,masssizeflag,ipart,sphrflag,redden,itimestep) 
+                  ,ipart,sphrflag,redden,itimestep) 
                   
                   betam = deltastr + 2.0
                   alphstr = ao**(1.-deltastr)
@@ -1005,7 +1001,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
        
                   !check that deltastr, rhobar, and rni are within reasonable bounds
                   CALL ICE_CHECKS(2,ns(i,k),qs(i,k),ans,cns,rns,deltastrs,rhobars,&
-                       iaspect,masssizeflag,sphrflag,redden,betam,alphstr,alphv)
+                       iaspect,sphrflag,redden,betam,alphstr,alphv)
                   
                   cs(i,k)=nus*ns(i,k)*cns
                   as(i,k)=nus*ns(i,k)*ans
@@ -1028,7 +1024,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                      CALL EVOLVE(2,ans,nidum,sui,sup,qvv,temp,press,igr,dt,swcf,&
                           cnsf,swci,phiis,phisf,cns,rns,rnsf,ans,deltastrs,mu,&
                           rhobars,vtbarbs,vtbarbms,alphstr,vtbarblens,rhoa,i,k,iaspect&
-                          ,masssizeflag,ipart,sphrflag,redden,itimestep) 
+                          ,ipart,sphrflag,redden,itimestep) 
                      
                      betam = deltastr + 2.0
                      alphstr = ao**(1.-deltastr)
@@ -1120,7 +1116,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   cni=ao**(1.-deltastr)*ani**deltastr
                END IF           ! iflag = 1
 
-               CALL R_CHECK(1,qi(i,k),ni(i,k),cni,ani,rni,rhobar,deltastr,masssizeflag,&
+               CALL R_CHECK(1,qi(i,k),ni(i,k),cni,ani,rni,rhobar,deltastr,&
                     betam,alphstr,alphv)
                
                ci(i,k)=nu*ni(i,k)*cni
@@ -1217,8 +1213,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
                ani=ai(i,k)/(nu*ni(i,k))
                cni=ci(i,k)/(nu*ni(i,k))
 
-               CALL DSTR_CHECK(1,ni(i,k),ani,cni,deltastr,iaspect,masssizeflag,sphrflag)
-               CALL RHO_CHECK(1,deltastr,qi(i,k),ni(i,k),ani,cni,masssizeflag,sphrflag,redden,&
+               CALL DSTR_CHECK(1,ni(i,k),ani,cni,deltastr,iaspect,sphrflag)
+               CALL RHO_CHECK(1,deltastr,qi(i,k),ni(i,k),ani,cni,sphrflag,redden,&
                     betam,alphstr,alphv,rhobar)
                ci(i,k)=nu*ni(i,k)*cni
                ai(i,k)=nu*ni(i,k)*ani
@@ -1298,7 +1294,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
                rhobar=920.
             END IF
             IF(iaspect .eq. 1) phii = 0.27
-            IF(masssizeflag .eq. 1) rhobar=920.
             IF(sphrflag .eq. 1) rhobar =920.
             If(redden .eq. 1) rhoi = 500.
             !rhobar=500.
@@ -1821,12 +1816,12 @@ MODULE MODULE_MP_SULIAHARRINGTON
       SUBROUTINE EVOLVE(iflag,ani,ni,sui,sup,qvv,temp,press,igr,deltt,iwc,cf,&
           iwci,phii,phif,cni,rni,rnf,anf,deltastr,mu,rhoavg,vtbarb,&
           vtbarbm,alphstr,vtbarblen,rhoa,i,k,iaspect,&
-          masssizeflag,ipart,sphrflag,redden,itimestep)
+          ipart,sphrflag,redden,itimestep)
 !***********************************************************************
 
       IMPLICIT NONE
 
-      INTEGER ipart,ivent,i,k,iaspect,redden,masssizeflag,iflag
+      INTEGER ipart,ivent,i,k,iaspect,redden,iflag
       INTEGER sphrflag,itimestep,MICRO_ON
       REAL ani,ni,temp,press,qvv
       REAL igr,gi,capgam,dmdt,deltt,qe
@@ -1862,9 +1857,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
       kts = 2.3823e-2 +7.1177e-5*(temp-273.15) ! thermal conductivity
       
       l=ani
-      IF(masssizeflag.EQ.1)THEN
-         IF(cni.GT.ani)l=cni         
-      END IF
       drho = ((polysvp1(temp,0)-polysvp1(temp,1))/(Rv*temp))*1000.0
       IGR_DEN = IGR
 
@@ -1888,46 +1880,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       beta_a = 0.
       alpha_v = 0.
       beta_v = 0.
-      IF(masssizeflag .EQ. 1)THEN
 
-         IF(ipart .eq. 0)THEN
-            capgam = 2.*.1803*l*gammnu1/gammnu ! cap for a needle in RAMS
-            
-         ELSE IF(ipart .ge. 1)THEN
-            capgam = 2.*0.179*l*gammnu1/gammnu !cap for a column in RAMS
-         END IF
-         
-         IF(celsius .lt. -10.0 .and. celsius .gt. -20.0)THEN
-            
-            IF(ipart .eq. 0 .or. ipart .eq. 3)THEN
-               capgam = 2.*.3183*l*gammnu1/gammnu !cap for a dendrite
-               
-            ELSE IF(ipart.eq.1.or.ipart.eq.2)THEN
-               capgam = 2.*0.429*l*gammnu1/gammnu ! cap for a plate in RAMS
-            END IF
-            
-         END IF  
-
-         cap=capgam/(l*gammnu1/gammnu)
-
-         CALL getmasssize(celsius,l,alpham,&
-         betam,alpha_a,beta_a,alpha_v,beta_v,cap,ipart)
-
-         alphams=alpham*2.**betam
-         alpha_as=alpha_a*2.**beta_a
-         IF(alphap.eq.0.0)THEN
-            alphap=alphams
-            alphamsp=alphams
-            betamp=betam
-         END IF
-!     deltastr=betam-2.
-!     alphstr=ao**(1.-deltastr)
-         capgam=cap   
-         gammnubet=exp(gammln(nu+betam))
-         iwci=ni*alphams*l**betam*gammnubet/gammnu
-         
-      END IF
-      
       dmdt = 4.*pi*gi*sui*ni*capgam
 
         !     get alpham and betam from deltastr
@@ -1980,10 +1933,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
       
       bx = deltastr+2.+2.*bl-ba
       
-      IF(masssizeflag.eq.1)THEN
-         xn = (8.*alphams*grav*rhoa)/(alpha_as*etaa**2)
-         bx = betam + 2.0 - beta_a
-      END IF
 
       wghtv1 = exp(gammln(nu+deltastr+2.+2.*bl-ba))/gammnu
       xm = xn*ani**bx * wghtv1  ! average Best number
@@ -2035,14 +1984,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
       endif
       
       
-      IF(masssizeflag .EQ. 1)THEN
-         vtbarb = alpha_v*2.**beta_v*l**beta_v*&
-         exp(gammln(nu+beta_v))/gammnu
-         vtbarbm = alpha_v*2.**beta_v*l**beta_v*&
-         exp(gammln(nu+beta_v+betam))/exp(gammln(nu+betam))
-         vtbarblen = alpha_v*2.**beta_v*l**beta_v*&
-         exp(gammln(nu+beta_v+1.))/exp(gammln(nu+1.))
-      END IF
 
          
       xvent = nsch**(1./3.)*SQRT(nre)
@@ -2136,7 +2077,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       endif
 
 
-      IF(masssizeflag .eq. 1.or.sphrflag.eq.1) rhodep=920.
+      IF(sphrflag.eq.1) rhodep=920.
       If(redden .eq. 1) rhodep = 500.
       !rhodep=500.
 !     rf = ((rni*gamrats)**2 + 2.*gi*sui*fs/rhodep &
@@ -2152,17 +2093,14 @@ MODULE MODULE_MP_SULIAHARRINGTON
       rhoavg = rhoavg*(vi/vf) + rhodep*(1.-vi/vf) ! new average ice density
       rhoavg = max(min(rhoavg,920.),50.)
 
-      IF(masssizeflag.eq.1.or.sphrflag.eq.1)rhoavg=920.
+      IF(sphrflag.eq.1)rhoavg=920.
       !rhoavg=500.
       iwc = ni*rhoavg*vf        ! IWC after deltat
-      IF(masssizeflag.eq.1) iwc=ni*alpham*rnf**betam*&
-      (gammnu/exp(gammln(nu+deltastr+2.)))**(3./betam)
 
       if(igr.ne.1.0.and.(log(anf)-log(ao)).gt.0.01 .and.&
       (3.*log(rnf)-2.*log(anf)-log(ao)).gt.0.001)THEN
          deltastr = (3.*log(rnf)-2.*log(anf)-log(ao)) &
          /(log(anf)-log(ao))    ! diagnose new deltastar
-         IF(masssizeflag.eq.1)deltastr=1.0
       else
          deltastr = 1.
       endif
@@ -2181,15 +2119,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
          cf = phif*anf*gammnu/exp(gammln(nu+deltastr-1.))
       endif
 
-      IF(masssizeflag.eq.1)THEN
-         anf = (ani**(betam-1.0) + 4.*pi*gi*sui*cap*(betam-1.)/&
-         (alphams*betam)*exp(gammln(nu+1.))/&
-         exp(gammln(nu+betam)) * deltt)**(1./(betam-1.))
-         rnf = anf
-!     iwc = ni*alphams*lf**betam * gammnubet/gammnu
-         iwc = ni*alphams*anf**betam * gammnubet/gammnu
-!     dlndt = dmdt/(ni*lenconv(ln,deltastr,nu,alpham,betam,alphstr))
-      END IF
+     
       END IF !MICRO_ON
 
  
@@ -2202,24 +2132,24 @@ MODULE MODULE_MP_SULIAHARRINGTON
     !CHECKS.
     !********************************************************
     SUBROUTINE ICE_CHECKS(iflag,ni,qi,ani,cni,rni,deltastr,rhobar,iaspect,&
-         masssizeflag,sphrflag,redden,betam,alphstr,alphv)
+         sphrflag,redden,betam,alphstr,alphv)
                  
       IMPLICIT NONE
-      INTEGER iaspect, masssizeflag, sphrflag, redden,iflag
+      INTEGER iaspect, sphrflag, redden,iflag
       REAL qi, ni, ani, cni, rni, deltastr, rhobar
       REAL betam,alphstr,alphv
       
-      CALL DSTR_CHECK(iflag,ni,ani,cni,deltastr,iaspect,masssizeflag,sphrflag)
-      CALL RHO_CHECK(iflag,deltastr,qi,ni,ani,cni,masssizeflag,sphrflag,redden,betam,alphstr,alphv,rhobar)
-      CALL R_CHECK(iflag,qi,ni,cni,ani,rni,rhobar,deltastr,masssizeflag,betam,alphstr,alphv)
+      CALL DSTR_CHECK(iflag,ni,ani,cni,deltastr,iaspect,sphrflag)
+      CALL RHO_CHECK(iflag,deltastr,qi,ni,ani,cni,sphrflag,redden,betam,alphstr,alphv,rhobar)
+      CALL R_CHECK(iflag,qi,ni,cni,ani,rni,rhobar,deltastr,betam,alphstr,alphv)
                  
 
     END SUBROUTINE ICE_CHECKS
 
-    SUBROUTINE DSTR_CHECK(iflag,ni,ani,cni,deltastr,iaspect,masssizeflag,sphrflag)
+    SUBROUTINE DSTR_CHECK(iflag,ni,ani,cni,deltastr,iaspect,sphrflag)
       
       IMPLICIT NONE
-      INTEGER :: iaspect,masssizeflag,sphrflag,iflag
+      INTEGER :: iaspect,sphrflag,iflag
       REAL ::  ani, cni, deltastr, voltmp, ai, ci, ni, n, gn
 
       !     get deltastr from cni and ani
@@ -2241,7 +2171,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
       
       
       IF(iaspect .eq. 1) deltastr = 0.8
-      IF(masssizeflag .eq. 1) deltastr=1.0
       IF(sphrflag .eq. 1) deltastr = 1.0
       
                
@@ -2270,9 +2199,9 @@ MODULE MODULE_MP_SULIAHARRINGTON
       
     END SUBROUTINE DSTR_CHECK
 
-    SUBROUTINE RHO_CHECK(iflag,deltastr,qi,ni,ani,cni,masssizeflag,sphrflag,redden,betam,alphstr,alphv,rhobar)
+    SUBROUTINE RHO_CHECK(iflag,deltastr,qi,ni,ani,cni,sphrflag,redden,betam,alphstr,alphv,rhobar)
       IMPLICIT NONE
-      INTEGER masssizeflag, sphrflag, redden, iflag
+      INTEGER sphrflag, redden, iflag
       REAL deltastr, qi, ni, ani, cni, n, gn
       REAL alphstr, alphv, betam
       REAL rhobar
@@ -2293,7 +2222,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       rhobar = qi*gn/(ni*alphv* &
            ani**betam*exp(gammln(n+betam)))
                
-      IF(masssizeflag .eq. 1.or.sphrflag.eq.2) rhobar = 920.
+      IF(sphrflag.eq.1) rhobar = 920.
       If(redden .eq. 1) rhoi = 500.
 
       IF(rhobar.gt.920.)THEN 
@@ -2318,9 +2247,9 @@ MODULE MODULE_MP_SULIAHARRINGTON
     END SUBROUTINE RHO_CHECK
 
     !     get rni (characteristic equivalent volume ice radius)
-    SUBROUTINE R_CHECK(iflag,qi,ni,cni,ani,rni,rhobar,deltastr,masssizeflag,betam,alphstr,alphv)
+    SUBROUTINE R_CHECK(iflag,qi,ni,cni,ani,rni,rhobar,deltastr,betam,alphstr,alphv)
       IMPLICIT NONE
-      INTEGER masssizeflag,iflag
+      INTEGER iflag
       REAL qi, ni, cni, ani, rhobar, deltastr, n, gn
       REAL rni
       REAL alphstr, alphv, betam
@@ -2339,10 +2268,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
       rni = (qi*3./(ni*rhobar*4.*pi*&
            (exp(gammln(n+deltastr+2.))/gn)))**(1./3.)
       
-      IF(masssizeflag .eq. 1)THEN
-         rni=ani
-         IF(cni.gt.ani)rni=cni
-      ENDIF
       
       !     make sure rni is within reasonable bounds,
       

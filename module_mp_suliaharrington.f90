@@ -81,7 +81,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       rd = 287.15
       cp = 1005.
       cpw = 4187.
-      ao = .1e-6
+      ao = 1.e-6
       co = ao
       li0 = ao
       mi0 = 4./3.*pi*rhoi*(li0)**3
@@ -1055,26 +1055,30 @@ MODULE MODULE_MP_SULIAHARRINGTON
             END IF!temp and sui
             
 !     make sure doesn't push into subsat or supersat
-            
+
             iflag=0
-            prd1=prd
-            IF(prd.lt.0.0.and.sui.ge.0.0)THEN
-               IF(prd.lt.-FUDGE*sui*qvi/abi/dt)THEN
-                   prd = -FUDGE*sui*qvi/abi/dt
-                   iflag = 1
+            prd1=prd+prds
+            IF(prd1.lt.0.0.and.sui.ge.0.0)THEN
+               IF(prd1.lt.-FUDGE*sui*qvi/abi/dt)THEN
+                  prd = -FUDGE*sui*qvi/abi/dt*(prd/prd1)
+                  prds = -FUDGE*sui*qvi/abi/dt*(prds/prd1)
+                  iflag = 1
                END IF
             END IF 
-            IF(prd.lt.0.0.and.sui.lt.0.0)THEN
-               IF(prd.lt.FUDGE*sui*qvi/abi/dt)THEN
-                 prd = FUDGE*sui*qvi/abi/dt
-                 iflag = 1
+            IF(prd1.lt.0.0.and.sui.lt.0.0)THEN
+               IF(prd1.lt.FUDGE*sui*qvi/abi/dt)THEN
+                  prd = FUDGE*sui*qvi/abi/dt*(prd/prd1)
+                  prds = FUDGE*sui*qvi/abi/dt*(prds/prd1)
+                  iflag = 1
                END IF
             END IF
-            IF((prd.gt.0..and.prd.gt.FUDGE*sui*qvi/abi/dt))THEN
-               prd=FUDGE*sui*qvi/abi/dt
+            IF((prd1.gt.0..and.prd1.gt.FUDGE*sui*qvi/abi/dt))THEN
+               prd=FUDGE*sui*qvi/abi/dt*(prd/prd1)
+               prds=FUDGE*sui*qvi/abi/dt*(prds/prd1)
                iflag=1
             END IF
 
+          
 !     conservation checks
             prd=max(prd,-qi(i,k)/dt)
 !     add growth tendencies to get updated variables
@@ -1125,17 +1129,71 @@ MODULE MODULE_MP_SULIAHARRINGTON
                ci(i,k)=nu*ni(i,k)*cni
                ai(i,k)=nu*ni(i,k)*ani
             END IF              ! q > qsmall
+
+
+            if(snowflag.eq.2)then
+               prds=max(prds,-qs(i,k)/dt)
+               
+               qs(i,k)=qs(i,k)+(prds)*dt
+               as(i,k)=as(i,k)+(ards)*dt
+               cs(i,k)=cs(i,k)+(crds)*dt
+               
+               IF(prds .gt. 0.0)THEN
+                  snowdep(i,k) = prds
+               ELSE
+                  snowsub(i,k) = prds
+               ENDIF
+
+               !     if sublimation, reduce snow number,
+               !     NOTE: this should not impact rhobars, since
+               !     rhobars contains terms with qs/ns and ratio
+               !     of qs/ns is assumed constant during loss of ns
+               
+               IF(qs(i,k).ge.qsmall.and.ns(i,k).gt.qsmall)THEN
+               
+                  IF(prds.lt.0.)THEN
+                     ns(i,k)=ns(i,k)+prds*ns(i,k)/qs(i,k)*dt
+                  END IF
+
+                  !     set minimum ni to avoid taking root of a negative number
+                  ns(i,k)=max(ns(i,k),qsmall)
+                  
+                  !     if iflag=1, then recalculate as and cs assuming same deltastrs
+                  !     and same rhobars
+                  !     this is needed for consistency between qs, as, cs, etc.
+                  !     since growth rate prd must be scaled back
+               
+                  IF(iflag.eq.1)THEN
+                     alphstr=co/ao**(deltastrs)
+                     alphv=4./3.*pi*alphstr
+                     betam=2.+deltastrs   
+                     
+                     ans=((qs(i,k)*exp(gammln(nus+betam)))/(rhobars*ns(i,k)*alphv*&
+                          exp(gammln(nus+betam))))**(1./betam)
+                     
+                     cns=co*(ans/ao)**deltastrs
+                  END IF           ! iflag = 1
+                  
+                  CALL R_CHECK(2,qs(i,k),ns(i,k),cns,ans,rns,rhobars,deltastrs,&
+                       betam,alphstr,alphv)
+               
+                  cs(i,k)=nus*ns(i,k)*cns
+                  as(i,k)=nus*ns(i,k)*ans
+               END IF              ! q > qsmall
+            end if
+            
+
+            !     calculate simplified aggregation for snow category 
+            !     kjs 02/2015
+            
+            !     First, calulcate the aggregate-available ice,
+            !     which is the amount of ice that would autoconvert to snow
+            !     in traditional schemes. This is for r_i > 125 um.
             
             betam=2.+deltastr
             alphstr=co/ao**(deltastr)
-            alphv=4./3.*pi*alphstr     
-
-!     calculate simplified aggregation for snow category 
-!     kjs 02/2015
+            alphv=4./3.*pi*alphstr
             
-!     First, calulcate the aggregate-available ice,
-!     which is the amount of ice that would autoconvert to snow
-!     in traditional schemes. This is for r_i > 125 um.
             IF(snowflag.eq.1)THEN
                IF(qi(i,k).ge.1.e-8.and.qv(i,k)/qvi.gt.1.)THEN
                   nprci = 4./DCS/rhobar*(qv(i,k)-qvi)*rho(i,k)*ni(i,k)&
@@ -1824,9 +1882,9 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       IMPLICIT NONE
 
-      INTEGER ipart,ivent,i,k,iaspect,redden,iflag, nn
+      INTEGER ipart,ivent,i,k,iaspect,redden,iflag
       INTEGER sphrflag,itimestep,MICRO_ON
-      REAL ani,ni,temp,press,qvv
+      REAL ani,ni,temp,press,qvv, nn
       REAL igr,gi,capgam,dmdt,deltt,qe
       REAL dlndt,mu
       REAL l,lmean,fs,gammnu1,gammnubet,anf,betam

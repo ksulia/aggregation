@@ -2074,14 +2074,16 @@ CONTAINS
                  (nprc1+nragg-npracg+nsubr-nsmltr-ngmltr)*dt + &
                  (-npracs1-niacr-niacrs-npracg1-ngracs+nsubr)*dt
             
-            qs(i,k) = qs(i,k) + &
-                 (psmlt+evpms-pracs)*dt +&
-                 (psacws+prds+pracs1+eprds-psacr+piacrs+&
-                 pracis)*dt
-            ns(i,k) = ns(i,k) + &
-                 nsmlts*dt + &
-                 (nsagg-nscng-ngracs+niacrs+nsubs)*dt
-               
+            if(snowflag.eq.1)then
+               qs(i,k) = qs(i,k) + &
+                    (psmlt+evpms-pracs)*dt +&
+                    (psacws+prds+pracs1+eprds-psacr+piacrs+&
+                    pracis)*dt
+               ns(i,k) = ns(i,k) + &
+                    nsmlts*dt + &
+                    (nsagg-nscng-ngracs+niacrs+nsubs)*dt
+            end if
+            
             qg(i,k) = qg(i,k) + &
                  (pgmlt+evpmg-pracg)*dt + &
                  (pracg1+psacwg+pgsacw+pgracs+prdg+&
@@ -2097,11 +2099,14 @@ CONTAINS
 
 
             rainevap(i,k) = -1.*pre
-            snowevap(i,k) = -1.*evpms
-            snowmelt(i,k) = -1.*psmlt
-            snowdep(i,k) = prds
-            snowsub(i,k) = eprds
-            snowaccr(i,k) = pracs
+
+            if(snowflag.eq.1)then
+               snowevap(i,k) = -1.*evpms
+               snowmelt(i,k) = -1.*psmlt
+               snowdep(i,k) = prds
+               snowsub(i,k) = eprds
+               snowaccr(i,k) = pracs
+            end if
   
 !     add liquid, do saturation adjustment to get updated qc
 !     get updated thermodynamics (updated after ice microphysics)
@@ -2141,19 +2146,22 @@ CONTAINS
                   qr(i,k)=qr(i,k)+qi(i,k)
                   nr(i,k)=nr(i,k)+ni(i,k)
                   t(i,k)=t(i,k)-qi(i,k)*xxlf/cpm
+                  icemelt(i,k) = qi(i,k)/dt
                   qi(i,k)=0.
                   ni(i,k)=0.
                   ai(i,k)=0.
                   ci(i,k)=0.
-                  icemelt(i,k) = qi(i,k)/dt
                END IF
-!               IF(qs(i,k).ge.qsmall)THEN
-!                  qr(i,k)=qr(i,k)+qs(i,k)
-!                  nr(i,k)=nr(i,k)+ns(i,k)
-!                  t(i,k)=t(i,k)-qs(i,k)*xxlf/cpm
-!                  qs(i,k)=0.
-!                  ns(i,k)=0.
-!               END IF
+               IF(snowflag.eq.2)then
+                  IF(qs(i,k).ge.qsmall)THEN
+                     qr(i,k)=qr(i,k)+qs(i,k)
+                     nr(i,k)=nr(i,k)+ns(i,k)
+                     t(i,k)=t(i,k)-qs(i,k)*xxlf/cpm
+                     snowmelt(i,k) = qs(i,k)/dt
+                     qs(i,k)=0.
+                     ns(i,k)=0.  
+                  END IF
+               END IF
             END IF
 !     homogeneous freezing, freeze andd cloud and rain water within one time-step below -40
             IF(homofreeze .eq. 1.and.t(i,k).le.233.15.and.&

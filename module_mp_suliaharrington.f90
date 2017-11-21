@@ -1370,18 +1370,19 @@ MODULE MODULE_MP_SULIAHARRINGTON
             IF(snowflag .eq. 1)THEN
                qs(i,k) = qs(i,k)+(-pracs+psmlt+evpms+prds+eprds)*dt
                ns(i,k) = ns(i,k)+(nsagg+nsubs+nsmlts)*dt
-            ELSE IF(snowflag.eq.2)THEN
             END IF
             qv(i,k)=qv(i,k)+(-pre-evpms-prds-eprds)*dt
             temp=temp+(xxlv*pre+(evpms+prds+eprds)*xxls+&
                    (psmlt-pracs)*xxlf)*dt/cpm
 
             rainevap(i,k) = -1.*pre
-            snowevap(i,k) = -1.*evpms
-            snowmelt(i,k) = -1.*psmlt
-            snowdep(i,k) = prds
-            snowsub(i,k) = eprds
-            snowaccr(i,k) = pracs
+            if(snowflag.eq.1)then
+               snowevap(i,k) = -1.*evpms
+               snowmelt(i,k) = -1.*psmlt
+               snowdep(i,k) = prds
+               snowsub(i,k) = eprds
+               snowaccr(i,k) = pracs
+            end if
   
 !     add liquid, do saturation adjustment to get updated qc
 !     get updated thermodynamics (updated after ice microphysics)
@@ -1421,20 +1422,22 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   qr(i,k)=qr(i,k)+qi(i,k)
                   nr(i,k)=nr(i,k)+ni(i,k)
                   t(i,k)=t(i,k)-qi(i,k)*xxlf/cpm
+                  icemelt(i,k) = qi(i,k)/dt
                   qi(i,k)=0.
                   ni(i,k)=0.
                   ai(i,k)=0.
                   ci(i,k)=0.
-                  icemelt(i,k) = qi(i,k)/dt
-                  print*,'melt all ice',itimestep,t(i,k),pcc*xxlv/cpm*dt,(xxlv*pre+(evpms+prds+eprds)*xxls+&
-                   (psmlt-pracs)*xxlf)*dt/cpm,((prd+mnuccd)*xxls/cpm*dt)
                END IF
-               IF(qs(i,k).ge.qsmall)THEN
-                  qr(i,k)=qr(i,k)+qs(i,k)
-                  nr(i,k)=nr(i,k)+ns(i,k)
-                  t(i,k)=t(i,k)-qs(i,k)*xxlf/cpm
-                  qs(i,k)=0.
-                  ns(i,k)=0.
+
+               IF(snowflag.eq.2)then
+                  IF(qs(i,k).ge.qsmall)THEN
+                     qr(i,k)=qr(i,k)+qs(i,k)
+                     nr(i,k)=nr(i,k)+ns(i,k)
+                     t(i,k)=t(i,k)-qs(i,k)*xxlf/cpm
+                     snowmelt(i,k) = qs(i,k)/dt
+                     qs(i,k)=0.
+                     ns(i,k)=0.
+                  END IF
                END IF
             END IF
 !     homogeneous freezing, freeze andd cloud and rain water within one time-step below -40

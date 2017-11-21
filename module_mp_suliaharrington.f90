@@ -1088,24 +1088,25 @@ MODULE MODULE_MP_SULIAHARRINGTON
                icesub(i,k) = prd
             ENDIF
 
-            IF(qi(i,k).ge.qsmall.and.ni(i,k).gt.qsmall)THEN
 
-!     if sublimation, reduce crystal number,
-!     NOTE: this should not impact rhobar, since
-!     rhobar contains terms with qi/ni and ratio
-!     of qi/ni is assumed constant during loss of ni
+            !     if sublimation, reduce crystal number,
+            !     NOTE: this should not impact rhobar, since
+            !     rhobar contains terms with qi/ni and ratio
+            !     of qi/ni is assumed constant during loss of ni
+            
+            IF(qi(i,k).ge.qsmall.and.ni(i,k).gt.qsmall)THEN
                
                IF(prd.lt.0.)THEN
                   ni(i,k)=ni(i,k)+prd*ni(i,k)/qi(i,k)*dt
                END IF
-
-!     set minimum ni to avoid taking root of a negative number
+               
+               !     set minimum ni to avoid taking root of a negative number
                ni(i,k)=max(ni(i,k),qsmall)
-
-!     if iflag=1, then recalculate ai and ci assuming same deltastr
-!     and same rhobar
-!     this is needed for consistency between qi, ai, ci, etc.
-!     since growth rate prd must be scaled back
+               
+               !     if iflag=1, then recalculate ai and ci assuming same deltastr
+               !     and same rhobar
+               !     this is needed for consistency between qi, ai, ci, etc.
+               !     since growth rate prd must be scaled back
                
                IF(iflag.eq.1)THEN
                   alphstr=co/ao**(deltastr)
@@ -1115,7 +1116,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
                        exp(gammln(nu+betam))))**(1./betam)
                   
-                  cni=co/ao**(deltastr)*ani**deltastr
+                  cni=co*(ani/ao)**deltastr
                END IF           ! iflag = 1
 
                CALL R_CHECK(1,qi(i,k),ni(i,k),cni,ani,rni,rhobar,deltastr,&
@@ -1170,7 +1171,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                IF(qi(i,k).gt.qsmall.and.ni(i,k).gt.qsmall)THEN
                   ani = ((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
                        exp(gammln(nu+betam))))**(1./betam)
-                  cni=co/ao**(deltastr)*ani**deltastr
+                  cni=co*(ani/ao)**deltastr
                   ci(i,k)=nu*ni(i,k)*cni
                   ai(i,k)=nu*ni(i,k)*ani  
                END IF
@@ -1201,7 +1202,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
                ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
                    exp(gammln(nu+betam))))**(1./betam)
-               cni=co/ao**(deltastr)*ani**deltastr
+               cni=co*(ani/ao)**deltastr
                ci(i,k)=nu*ni(i,k)*cni
                ai(i,k)=nu*ni(i,k)*ani
 
@@ -1823,7 +1824,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       IMPLICIT NONE
 
-      INTEGER ipart,ivent,i,k,iaspect,redden,iflag
+      INTEGER ipart,ivent,i,k,iaspect,redden,iflag, nn
       INTEGER sphrflag,itimestep,MICRO_ON
       REAL ani,ni,temp,press,qvv
       REAL igr,gi,capgam,dmdt,deltt,qe
@@ -1864,12 +1865,15 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       betam = 2. + deltastr
 
-      gammnu=exp(gammln(nu))
-      gammnu1=exp(gammln(nu+1.0))
-      gammnubet=exp(gammln(nu+betam))
+      if(iflag.eq.1) nn = nu
+      if(iflag.eq.2) nn = nus
+      
+      gammnu=exp(gammln(nn))
+      gammnu1=exp(gammln(nn+1.0))
+      gammnubet=exp(gammln(nn+betam))
 
-      capgam = capacitance_gamma(l,deltastr,nu,alphstr)
-      lmean = l*nu
+      capgam = capacitance_gamma(l,deltastr,nn,alphstr)
+      lmean = l*nn
 
       cap = 0.
       alpham = 0.
@@ -1886,12 +1890,12 @@ MODULE MODULE_MP_SULIAHARRINGTON
       dmdt = 4.*pi*gi*sui*ni*capgam
 
         !     get alpham and betam from deltastr
-      dlndt = dmdt/(ni*lenconv(ani,deltastr,nu,alpham,&
+      dlndt = dmdt/(ni*lenconv(ani,deltastr,nn,alpham,&
       betam,alphstr,rhoavg))
-      gammnubet = exp(gammln(nu+betam))
-      gammnu2delt = exp(gammln(nu+2.+deltastr))
-      gammnu1delt = exp(gammln(nu+deltastr-1.))
-      gamrats = exp(gammln(nu+betam/3.))/gammnu
+      gammnubet = exp(gammln(nn+betam))
+      gammnu2delt = exp(gammln(nn+2.+deltastr))
+      gammnu1delt = exp(gammln(nn+deltastr-1.))
+      gamrats = exp(gammln(nn+betam/3.))/gammnu
       
       phii = cni/ani*gammnu1delt/gammnu ! diagnose initial aspect ratio
       IF(iaspect .eq. 1) phii = 0.27
@@ -1936,7 +1940,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       bx = deltastr+2.+2.*bl-ba
       
 
-      wghtv1 = exp(gammln(nu+deltastr+2.+2.*bl-ba))/gammnu
+      wghtv1 = exp(gammln(nn+deltastr+2.+2.*bl-ba))/gammnu
       xm = xn*ani**bx * wghtv1  ! average Best number
       
       if(xm.le.10.)then
@@ -1960,27 +1964,27 @@ MODULE MODULE_MP_SULIAHARRINGTON
       
       Nre = am*xm**bm
       
-      wghtv2 = exp(gammln(nu+bx*bm-1.))/gammnu
+      wghtv2 = exp(gammln(nn+bx*bm-1.))/gammnu
       vtbarb = etaa/rhoa*0.5 * am*(xn)**bm*ani**(bx*bm-1.) * wghtv2
-      wghtv3 = exp(gammln(nu+bx*bm-1.+2.+deltastr))&
-      /exp(gammln(nu+2.+deltastr))
+      wghtv3 = exp(gammln(nn+bx*bm-1.+2.+deltastr))&
+      /exp(gammln(nn+2.+deltastr))
       vtbarbm = etaa/rhoa*0.5 * am*(xn)**bm*ani**(bx*bm-1.) * wghtv3
 
  
 ! add length
       if(phii.lt.1.0)then
-         wghtv3 = exp(gammln(nu+bx*bm-1.+1)) &
-         /exp(gammln(nu+1.))
+         wghtv3 = exp(gammln(nn+bx*bm-1.+1)) &
+         /exp(gammln(nn+1.))
          vtbarblen = etaa/rhoa*0.5 * am*(xn)**bm*ani**(bx*bm-1.) &
          * wghtv3
       else if(phii.gt.1.0)then
-         wghtv3 = exp(gammln(nu+bx*bm-1.+deltastr))&
-         /exp(gammln(nu+deltastr))
+         wghtv3 = exp(gammln(nn+bx*bm-1.+deltastr))&
+         /exp(gammln(nn+deltastr))
          vtbarblen = etaa/rhoa*0.5 * am*(xn)**bm*ani**(bx*bm-1.) &
          * wghtv3
       else if (phii.eq.1.0)then
-         wghtv3 = exp(gammln(nu+bx*bm-1.+1))&
-         /exp(gammln(nu+1.))
+         wghtv3 = exp(gammln(nn+bx*bm-1.+1))&
+         /exp(gammln(nn+1.))
          vtbarblen = etaa/rhoa*0.5 * am*(xn)**bm*ani**(bx*bm-1.) &
          * wghtv3
       endif
@@ -2017,11 +2021,11 @@ MODULE MODULE_MP_SULIAHARRINGTON
 !         fva = bv1 + bv2*xvent**gv*(ani/rni)**(gv/2.)
 !         fva = bv1 + bv2*xvent**gv*(alphstr**(-1./3.)*
 !     +        ln**(1.-(deltastr+2.)/3.) * 
-!     +        exp(gammln(nu + 1. -(deltastr+2.)/3.))/gammnu)**(gv/2.)
+!     +        exp(gammln(nn + 1. -(deltastr+2.)/3.))/gammnu)**(gv/2.)
 !         fvc = bv1 + bv2*xvent**gv*(cni/rni)**(gv/2.)
 !         fvc = bv1 + bv2*xvent**gv*(alphstr**(2./3.)*
 !     +        ln**(deltastr-(deltastr+2.)/3.) * 
-!     +        exp(gammln(nu + deltastr -(deltastr+2.)/3.))/gammnu)
+!     +        exp(gammln(nn + deltastr -(deltastr+2.)/3.))/gammnu)
 !     +        **(gv/2.)
          fh = bt1 + bt2*ntherm**gt
 
@@ -2040,7 +2044,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 !      rhodep = 920.                 
                                               ! during growth
       vt = mu/rhoa*0.5*Nre/ani
-      fallcheck = sqrt(dvs*pi*2*cni/(vt*nu))
+      fallcheck = sqrt(dvs*pi*2*cni/(vt*nn))
       rhosub = rhoi*((1.-sui/qvv)+igr*(sui/qvv))
       IF(igr .lt. 1.0)THEN
          IF(sup .ge. 0.0)THEN
@@ -2068,8 +2072,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
       if(sui.lt.0.0)then        ! OR get density of ice removed 
          rhodep = rhoavg        ! during sublimation using polynomial
          videp = 4./3.*pi*rni**3 & 
-         *exp(gammln(nu+deltastr+2.))/gammnu
-         Vmin = 4./3.*pi*ao**3
+         *exp(gammln(nn+deltastr+2.))/gammnu
+         Vmin = 4./3.*pi*ao**2*co
          if(Vmin.lt.videp)then
             betavol = alog(rhoi/rhoavg)*1./(alog(Vmin/videp))
             rhodep = rhoavg*(1.+betavol)
@@ -2090,8 +2094,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       rnf = rf/gamrats           ! convert to rn (characteristic r)
       anf = alphanr*rnf**(3./(2.+igr)) ! characteristic a-axis after deltat
-      vi = 4./3.*pi*rni**3 * exp(gammln(nu+deltastr+2.))/gammnu ! mean initial volume
-      vf = 4./3.*pi*rnf**3 * exp(gammln(nu+deltastr+2.))/gammnu ! mean volume after deltat
+      vi = 4./3.*pi*rni**3 * exp(gammln(nn+deltastr+2.))/gammnu ! mean initial volume
+      vf = 4./3.*pi*rnf**3 * exp(gammln(nn+deltastr+2.))/gammnu ! mean volume after deltat
       rhoavg = rhoavg*(vi/vf) + rhodep*(1.-vi/vf) ! new average ice density
       rhoavg = max(min(rhoavg,920.),50.)
 
@@ -2099,9 +2103,9 @@ MODULE MODULE_MP_SULIAHARRINGTON
       !rhoavg=500.
       iwc = ni*rhoavg*vf        ! IWC after deltat
 
-      if(igr.ne.1.0.and.(log(anf)-log(ao)).gt.0.01 .and.&
+      if(igr.ne.1.0.and.(log(anf)-log(co)).gt.0.01 .and.&
       (3.*log(rnf)-2.*log(anf)-log(ao)).gt.0.001)THEN
-         deltastr = (3.*log(rnf)-2.*log(anf)-log(ao)) &
+         deltastr = (3.*log(rnf)-2.*log(anf)-log(co)) &
          /(log(anf)-log(ao))    ! diagnose new deltastar
       else
          deltastr = 1.
@@ -2110,7 +2114,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       deltastr = min(max(deltastr,0.55),1.5)
   
       if(deltastr.ge.1.0)then   ! if columns, get c from c-a relation
-         cf = (co/ao**(deltastr))*anf**deltastr
+         cf = co*(anf/ao)**deltastr
       endif
 
       phif = phii*(rnf**3/r**3)**((igr-1.)/(igr+2.)) ! if plates, get c from aspect ratio after deltat
@@ -2118,7 +2122,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
 !      rnf = rf
       if(deltastr.lt.1.0)then
-         cf = phif*anf*gammnu/exp(gammln(nu+deltastr-1.))
+         cf = phif*anf*gammnu/exp(gammln(nn+deltastr-1.))
       endif
 
      
@@ -2165,8 +2169,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
       gn = exp(gammln(n))
       
       IF((log(ani)-log(ao)).gt. 0.01 &
-           .and.(log(cni)-log(ao)).gt.0.001)THEN
-         deltastr = (log(cni)-log(ao))/(log(ani)-log(ao))
+           .and.(log(cni)-log(co)).gt.0.001)THEN
+         deltastr = (log(cni)-log(co))/(log(ani)-log(ao))
       ELSE
          deltastr = 1.
       ENDIF
@@ -2194,7 +2198,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
               (1./(2.+deltastr))
          ai=max((n*ni*ani),1.e-20)
          ani=ai/(n*ni)
-         cni=co/ao**(deltastr)*ani**deltastr
+         cni=co*(ani/ao)**deltastr
          ci=max((n*ni*cni),1.e-20)
          cni=ci/(n*ni)
       endif
@@ -2232,14 +2236,14 @@ MODULE MODULE_MP_SULIAHARRINGTON
          rhobar=920.
          ani=((qi*gn)/(rhobar*ni*alphv*&
               exp(gammln(n+betam))))**(1./betam)
-         cni=co/ao**(deltastr)*ani**deltastr
+         cni=co*(ani/ao)**deltastr
                   
       ELSE IF(rhobar.lt.50.)THEN
                       
          rhobar=50.
          ani=((qi*gn)/(rhobar*ni*alphv*&
               exp(gammln(n+betam))))**(1./betam)
-         cni=co/ao**(deltastr)*ani**deltastr
+         cni=co*(ani/ao)**deltastr
                       
       END IF
 
@@ -2280,7 +2284,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
               (exp(gammln(n+deltastr+2.))))
          ani=((qi*gn)/(rhobar*ni*alphv* &
               exp(gammln(n+betam))))**(1./betam) 
-         cni=co/ao**(deltastr)*ani**deltastr
+         cni=co*(ani/ao)**deltastr
          
       ELSE IF(rni.gt.2.e-3)THEN
          
@@ -2289,7 +2293,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
               (exp(gammln(n+deltastr+2.))))
          ani=((qi*gn)/(rhobar*ni*alphv* &
               exp(gammln(n+betam))))**(1./betam)
-         cni=co/ao**(deltastr)*ani**deltastr
+         cni=co*(ani/ao)**deltastr
          
       END IF
     END SUBROUTINE R_CHECK

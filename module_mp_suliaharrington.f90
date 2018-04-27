@@ -69,7 +69,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       REAL, PRIVATE :: coll_ni(5), coll_an(4), coll_cn(4), coll_nu(8), coll_rho(9)
       REAL, PRIVATE :: coll(5,4,4,8,9), ncoll(5,4,4,8,9)
-      INTEGER, PRIVATE :: ii, jj, kk, ll, mm
+      INTEGER, PRIVATE :: ii, jj, kk, ll, mm, iii, jjj, kkk, lll, mmm
       
       
     CONTAINS
@@ -145,15 +145,20 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       FUDGE = 0.9999
 
+      iii = 1!5
+      jjj = 1!4
+      kkk = 3!4
+      lll = 8
+      mmm = 9
 
-      OPEN(1,FILE="COLL.bin")!!Lookup table for aggregation mass and number
-      READ(1) (coll_ni(ii),ii=1,5) !ni = 1, 10, 100, 1000, 10000 L-1
-      READ(1) (coll_an(jj),jj=1,4) !an = 1, 10, 100, 1000, 10000 um
-      READ(1) (coll_cn(kk),kk=1,4) !cn = 1, 10, 100, 1000, 10000 um
-      READ(1) (coll_nu(ll),ll=1,8) !nu = 1, 2, 3, 4, 5, 6, 7, 8
-      READ(1) (coll_rho(mm),mm=1,9)!rho = 100, 200, 300, 400, 500, 600, 700, 800, 900 kg/m3
-      READ(1) (((((coll(i,j,k,l,m),i=1,5),j=1,4),k=1,4),l=1,8),m=1,9)
-      READ(1) (((((ncoll(i,j,k,l,m),i=1,5),j=1,4),k=1,4),l=1,8),m=1,9)
+      OPEN(1,FILE="COLL2.bin",form='unformatted')!!Lookup table for aggregation mass and number
+      READ(1) (coll_ni(ii),ii=1,iii) !ni = 1, 10, 100, 1000, 10000 L-1
+      READ(1) (coll_an(jj),jj=1,jjj) !an = 1, 10, 100, 1000, 10000 um
+      READ(1) (coll_cn(kk),kk=1,kkk) !cn = 1, 10, 100, 1000, 10000 um
+      READ(1) (coll_nu(ll),ll=1,lll) !nu = 1, 2, 3, 4, 5, 6, 7, 8
+      READ(1) (coll_rho(mm),mm=1,mmm)!rho = 100, 200, 300, 400, 500, 600, 700, 800, 900 kg/m3
+      READ(1) (((((coll(ii,jj,kk,ll,mm),ii=1,iii),jj=1,jjj),kk=1,kkk),ll=1,lll),mm=1,mmm)
+      READ(1) (((((ncoll(ii,jj,kk,ll,mm),ii=1,iii),jj=1,jjj),kk=1,kkk),ll=1,lll),mm=1,mmm)
       CLOSE(1)
 
     END SUBROUTINE SULIAHARRINGTON_INIT

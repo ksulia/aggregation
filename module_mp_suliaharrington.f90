@@ -190,7 +190,7 @@ CONTAINS
       lll = 8
       mmm = 9
 
-      OPEN(1,FILE="COLL2.bin")!!Lookup table for aggregation mass and number
+      OPEN(1,FILE="COLL2.bin",form='unformatted')!!Lookup table for aggregation mass and number
       READ(1) (coll_ni(ii),ii=1,iii) !ni = 1, 10, 100, 1000, 10000 L-1
       READ(1) (coll_an(jj),jj=1,jjj) !an = 1, 10, 100, 1000, 10000 um
       READ(1) (coll_cn(kk),kk=1,kkk) !cn = 1, 10, 100, 1000, 10000 um
@@ -746,7 +746,7 @@ CONTAINS
       sphrflag   = 0            !all ice assumed spheres
       redden     = 0
       homofreeze = 1            !homogeneous freezing
-      snowflag   = 2            !snow calculations, 0 = all snow off, 1 = only old snow, 2 = only new snow
+      snowflag   = 1            !snow calculations, 0 = all snow off, 1 = only old snow, 2 = only new snow
       SEDON      = 1            !sedimentation
       EVOLVE_ON  = 1            !depositional growth
       RAINON     = 1            !rain processes
@@ -2035,7 +2035,7 @@ CONTAINS
                END IF
 
             ELSE IF(snowflag.eq.2)THEN
-               CALL COLL_LOOKUP(ni(i,k),ani,cni,rhobar,agg,nagg)
+!               CALL COLL_LOOKUP(ni(i,k),ani,cni,rhobar,agg,nagg)
 
                
                
@@ -3009,210 +3009,210 @@ CONTAINS
     END SUBROUTINE DEMOTT
 
 
-    SUBROUTINE COLL_LOOKUP(ni,an,cn,rho,agg,nagg)
+!    SUBROUTINE COLL_LOOKUP(ni,an,cn,rho,agg,nagg)
 
-      IMPLICIT NONE
-      INTEGER :: i, j, k, l, m, n, flag
-      REAL :: wght_ni, wght_an, wght_cn, wght_nu, wght_rho, x
-      REAL, INTENT(IN) :: ni, an, cn, rho
-      REAL, INTENT(OUT) :: agg, nagg
+!      IMPLICIT NONE
+!      INTEGER :: i, j, k, l, m, n, flag
+!      REAL :: wght_ni, wght_an, wght_cn, wght_nu, wght_rho, x
+!      REAL, INTENT(IN) :: ni, an, cn, rho
+!      REAL, INTENT(OUT) :: agg, nagg
 
      
-      CALL ITERATE_LOOKUP(coll_ni,  ni,  wght_ni, i)
-      CALL ITERATE_LOOKUP(coll_an,  ani, wght_an, j)
-      CALL ITERATE_LOOKUP(coll_cn,  cni, wght_cn, k)
-      CALL ITERATE_LOOKUP(coll_nu,  nu,  wght_nu, l)
-      CALL ITERATE_LOOKUP(coll_rho, rho, wght_rho,m)
+!      CALL ITERATE_LOOKUP(coll_ni,  ni,  wght_ni, i)
+!      CALL ITERATE_LOOKUP(coll_an,  ani, wght_an, j)
+!      CALL ITERATE_LOOKUP(coll_cn,  cni, wght_cn, k)
+!      CALL ITERATE_LOOKUP(coll_nu,  nu,  wght_nu, l)
+!      CALL ITERATE_LOOKUP(coll_rho, rho, wght_rho,m)
 
 
-      CALL WGHTED_LOOKUP(i,j,k,l,m,wght_ni,wght_an,wght_cn,wght_nu,wght_rho,coll,agg)
-      CALL WGHTED_LOOKUP(i,j,k,l,m,wght_ni,wght_an,wght_cn,wght_nu,wght_rho,ncoll,nagg)
+!      CALL WGHTED_LOOKUP(i,j,k,l,m,wght_ni,wght_an,wght_cn,wght_nu,wght_rho,coll,agg)
+!      CALL WGHTED_LOOKUP(i,j,k,l,m,wght_ni,wght_an,wght_cn,wght_nu,wght_rho,ncoll,nagg)
       
 
       
 
-    END SUBROUTINE COLL_LOOKUP
+!    END SUBROUTINE COLL_LOOKUP
 
-    SUBROUTINE ITERATE_LOOKUP(x,y,wght,i)
+!    SUBROUTINE ITERATE_LOOKUP(x,y,wght,i)
       
-      IMPLICIT NONE
-      INTEGER :: i, n, flag
-      REAL, INTENT(IN) :: x
-      REAL, INTENT(OUT) :: wght
+!      IMPLICIT NONE
+!      INTEGER :: i, n, flag
+!      REAL, INTENT(IN) :: x
+!      REAL, INTENT(OUT) :: wght
       
-      flag = 0
-      i = size(x)
-      DO n = 1, size(x)
-         if((x(n)-y) .ge. 0.0 .and. flag .eq. 0)then
-            i = n
-            flag = 1
-         end if
-      END DO
+!      flag = 0
+!      i = size(x)
+!      DO n = 1, size(x)
+!         if((x(n)-y) .ge. 0.0 .and. flag .eq. 0)then
+!            i = n
+!            flag = 1
+!         end if
+!      END DO
       
-      if(i .gt. 1)then 
-         wght = (x(i)-y)/(x(i)-x(i-1))
-      else if(i.eq.1)then
-         wght = (x(i)-y)/(x(i)-0.0)
-      else if(i.eq.size(x).and.iflag.eq.0)
-         wght = 0.0
-      end if
+!      if(i .gt. 1)then 
+!         wght = (x(i)-y)/(x(i)-x(i-1))
+!      else if(i.eq.1)then
+!         wght = (x(i)-y)/(x(i)-0.0)
+!      else if(i.eq.size(x).and.iflag.eq.0)
+!         wght = 0.0
+!      end if
       
-    END SUBROUTINE ITERATE_LOOKUP
+!    END SUBROUTINE ITERATE_LOOKUP
 
-    SUBROUTINE WGHTED_LOOKUP(i,j,k,l,m,wghti,wghtj,wghtk,wghtl,wghtm,x,y)
-      IMPLICIT NONE
-      INTEGER, INTENT(IN) :: i,j,k,l,m
-      REAL, INTENT(IN) :: wghti,wghtj,wghtk,wghtl,x
-      REAL, INTENT(OUT) :: y
-      REAL tmpi1,tmpi2,tmpj1,tmpj2,tmpl1,tmpl2,tmpm
+!    SUBROUTINE WGHTED_LOOKUP(i,j,k,l,m,wghti,wghtj,wghtk,wghtl,wghtm,x,y)
+!      IMPLICIT NONE
+!      INTEGER, INTENT(IN) :: i,j,k,l,m
+!      REAL, INTENT(IN) :: wghti,wghtj,wghtk,wghtl,x
+!      REAL, INTENT(OUT) :: y
+!      REAL tmpi1,tmpi2,tmpj1,tmpj2,tmpl1,tmpl2,tmpm
 
 
-      CALL CHECK_MIN(i,j,k,l,m,A,B)
+!      CALL CHECK_MIN(i,j,k,l,m,A,B)
 
       !i1 = wght i at j1,k1,l1,m1
       !i2 = wght i at j2,k1,l1,m1
-      tmpi1 = x[i-1,j-1,k-1,l-1,m-1]*wghti + x[i,j-1,k-1,l-1,m-1]*(1.-wghti) !i wght
-      tmpi2 = x[i-1,j,k-1,l-1,m-1]*wghti + x[i,j,k-1,l-1,m-1]*(1.-wghti)     !i wght
+!      tmpi1 = x[i-1,j-1,k-1,l-1,m-1]*wghti + x[i,j-1,k-1,l-1,m-1]*(1.-wghti) !i wght
+!      tmpi2 = x[i-1,j,k-1,l-1,m-1]*wghti + x[i,j,k-1,l-1,m-1]*(1.-wghti)     !i wght
          
       !j1 = i-wghted j at k1,l1,m1
-      tmpj1 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
+!      tmpj1 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
 
       !----------------------------------------------------------------------------------------
 
       !i1 = wght i at j1,k2,l1,m1
       !i2 = wght i at j2,k2,l1,m1
-      tmpi1 = x[i-1,j-1,k,l-1,m-1]*wghti + x[i,j-1,k,l-1,m-1]*(1.-wghti)!i wght
-      tmpi2 = x[i-1,j,k,l-1,m-1]*wghti + x[i,j,k,l-1,m-1]*(1.-wghti)    !i wght
+!      tmpi1 = x[i-1,j-1,k,l-1,m-1]*wghti + x[i,j-1,k,l-1,m-1]*(1.-wghti)!i wght
+!      tmpi2 = x[i-1,j,k,l-1,m-1]*wghti + x[i,j,k,l-1,m-1]*(1.-wghti)    !i wght
 
       !j2 = i-wghted j at k2,l1,m1
-      tmpj2 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
+!      tmpj2 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
 
       !----------------------------------------------------------------------------------------
 
       !k1 = (i,j)-wghted k at l1,m1
-      tmpk1 = tmpj1*wghtk + tmpj2*(1.-wghtk)                                  !k wght
+!      tmpk1 = tmpj1*wghtk + tmpj2*(1.-wghtk)                                  !k wght
 
       !========================================================================================      
 
       !i1 = wght i at j1,k1,l2,m1
       !i2 = wght i at j2,k1,l2,m1
-      tmpi1 = x[i-1,j-1,k-1,l,m-1]*wghti + x[i,j-1,k-1,l,m-1]*(1.-wghti)     !i wght
-      tmpi2 = x[i-1,j,k-1,l,m-1]*wghti + x[i,j,k-1,l,m-1]*(1.-wghti)         !i wght
+!      tmpi1 = x[i-1,j-1,k-1,l,m-1]*wghti + x[i,j-1,k-1,l,m-1]*(1.-wghti)     !i wght
+!      tmpi2 = x[i-1,j,k-1,l,m-1]*wghti + x[i,j,k-1,l,m-1]*(1.-wghti)         !i wght
 
       !j1 = i-wghted j at k1,l2,m1
-      tmpj1 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                 !j wght
+!      tmpj1 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                 !j wght
 
       !----------------------------------------------------------------------------------------
 
       !i1 = wght i at j1,k2,l2,m1
       !i2 = wght i at j2,k2,l2,m1
-      tmpi1 = x[i-1,j-1,k,l,m-1]*wghti + x[i,j-1,k,l,m-1]*(1.-wghti)          !i wght
-      tmpi2 = x[i-1,j,k,l,m-1]*wghti + x[i,j,k,l,m-1]*(1.-wghti)              !i wght
+!      tmpi1 = x[i-1,j-1,k,l,m-1]*wghti + x[i,j-1,k,l,m-1]*(1.-wghti)          !i wght
+!      tmpi2 = x[i-1,j,k,l,m-1]*wghti + x[i,j,k,l,m-1]*(1.-wghti)              !i wght
 
       !j2 = i-wghted j at k2,l2,m1
-      tmpj2 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
+!      tmpj2 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
 
       !----------------------------------------------------------------------------------------
 
       !k2 = (i,j)-wghted k at l2,m1
-      tmpk2 = tmpj1*wghtk + tmpj2*(1.-wghtk)                                  !k wght
+!      tmpk2 = tmpj1*wghtk + tmpj2*(1.-wghtk)                                  !k wght
 
       !++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
       !l1 = (i,j,k)-wghted l at m1
-      tmpl1 = tmpk1*wghtl + tmpk2*(1.-wghtl)                                  !l wght
+!      tmpl1 = tmpk1*wghtl + tmpk2*(1.-wghtl)                                  !l wght
 
       !||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 
       !i1 = wght i at j1,k1,l1,m2
       !i2 = wght i at j2,k1,l1,m2
-      tmpi1 = x[i-1,j-1,k-1,l-1,m]*wghti + x[i,j-1,k-1,l-1,m]*(1.-wghti)      !i wght
-      tmpi2 = x[i-1,j,k-1,l-1,m]*wghti + x[i,j,k-1,l-1,m]*(1.-wghti)          !i wght
+!      tmpi1 = x[i-1,j-1,k-1,l-1,m]*wghti + x[i,j-1,k-1,l-1,m]*(1.-wghti)      !i wght
+!      tmpi2 = x[i-1,j,k-1,l-1,m]*wghti + x[i,j,k-1,l-1,m]*(1.-wghti)          !i wght
 
       !j1 = i-wghted j at k1,l1,m2
-      tmpj1 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
+!      tmpj1 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
 
       !----------------------------------------------------------------------------------------
 
       !i1 = wght i at j1,k2,l1,m2
       !i2 = wght i at j2,k2,l1,m2
-      tmpi1 = x[i-1,j-1,k,l-1,m]*wghti + x[i,j-1,k,l-1,m]*(1.-wghti)          !i wght
-      tmpi2 = x[i-1,j,k,l-1,m]*wghti + x[i,j,k,l-1,m]*(1.-wghti)              !i wght
+!      tmpi1 = x[i-1,j-1,k,l-1,m]*wghti + x[i,j-1,k,l-1,m]*(1.-wghti)          !i wght
+!      tmpi2 = x[i-1,j,k,l-1,m]*wghti + x[i,j,k,l-1,m]*(1.-wghti)              !i wght
 
       !j2 = i-wghted j at k2,l1,m2
-      tmpj2 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
+!      tmpj2 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
 
       !----------------------------------------------------------------------------------------
 
       !k1 = (i,j)-wghted k at l1,m2
-      tmpk1 = tmpj1*wghtk + tmpj2*(1.-wghtk)                                  !k wght
+!      tmpk1 = tmpj1*wghtk + tmpj2*(1.-wghtk)                                  !k wght
 
       !========================================================================================      
 
       !i1 = wght i at j1,k1,l2,m2
       !i2 = wght i at j2,k1,l2,m2
-      tmpi1 = x[i-1,j-1,k-1,l,m]*wghti + x[i,j-1,k-1,l,m]*(1.-wghti)          !i wght
-      tmpi2 = x[i-1,j,k-1,l,m]*wghti + x[i,j,k-1,l,m]*(1.-wghti)              !i wght
+!      tmpi1 = x[i-1,j-1,k-1,l,m]*wghti + x[i,j-1,k-1,l,m]*(1.-wghti)          !i wght
+!      tmpi2 = x[i-1,j,k-1,l,m]*wghti + x[i,j,k-1,l,m]*(1.-wghti)              !i wght
 
       !j1 = i-wghted j at k1,l2,m2
-      tmpj1 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
+!      tmpj1 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
 
       !----------------------------------------------------------------------------------------
 
       !i1 = wght i at j1,k2,l2,m2
       !i2 = wght i at j2,k2,l2,m2
-      tmpi1 = x[i-1,j-1,k,l,m]*wghti + x[i,j-1,k,l,m]*(1.-wghti)              !i wght
-      tmpi2 = x[i-1,j,k,l,m]*wghti + x[i,j,k,l,m]*(1.-wghti)                  !i wght
+!      tmpi1 = x[i-1,j-1,k,l,m]*wghti + x[i,j-1,k,l,m]*(1.-wghti)              !i wght
+!      tmpi2 = x[i-1,j,k,l,m]*wghti + x[i,j,k,l,m]*(1.-wghti)                  !i wght
 
       !j2 = i-wghted j at k2,l2,m2
-      tmpj2 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
+!      tmpj2 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
 
       !----------------------------------------------------------------------------------------
 
       !k2 = (i,j)-wghted k at l2,m2
-      tmpk2 = tmpj1*wghtk + tmpj2*(1.-wghtk)                                  !k wght
+!      tmpk2 = tmpj1*wghtk + tmpj2*(1.-wghtk)                                  !k wght
 
       !++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
       !l2 = (i,j,k)-wghted l at m2
-      tmpl2 = tmpk1*wghtl + tmpk2*(1.-wghtl)                                  !l wght
+!      tmpl2 = tmpk1*wghtl + tmpk2*(1.-wghtl)                                  !l wght
 
       !m = (i,j,k,l)-wghted m
-      tmpm = tmpl1*wghtm + tmpl2*(1.-wghtm)                                   !m wght
+!      tmpm = tmpl1*wghtm + tmpl2*(1.-wghtm)                                   !m wght
 
-      y = tmpm
+!      y = tmpm
 
-    END SUBROUTINE WGHTED_LOOKUP
+!    END SUBROUTINE WGHTED_LOOKUP
 
-    SUBROUTINE CHECK_MIN(i,j,k,l,m,A,B,x)
-      IMPLICIT NONE
-      INTEGER,INTENT(IN)::i,j,k,l,m
-      REAL,INTENT(IN)::x
-      REAL,INTENT(OUT)::A,B
-      LOGICAL :: q(5)
+!    SUBROUTINE CHECK_MIN(i,j,k,l,m,A,B,x)
+!      IMPLICIT NONE
+!      INTEGER,INTENT(IN)::i,j,k,l,m
+!      REAL,INTENT(IN)::x
+!      REAL,INTENT(OUT)::A,B
+!      LOGICAL :: q(5)
 
-      q(:) = .false.
-      if(i.le.1)q(1) = .true.
-      if(j.le.1)q(2) = .true.
-      if(k.le.1)q(3) = .true.
-      if(l.le.1)q(4) = .true.
-      if(m.le.1)q(5) = .true.
-
-      
-      do z=1,5
-         do y=1,5
-            do w=1,5
-               do v=1,5
-                  do u=1,5
-                  end do
-               end do
-            end do
-         end do
-      end do
-      
+!      q(:) = .false.
+!      if(i.le.1)q(1) = .true.
+!      if(j.le.1)q(2) = .true.
+!      if(k.le.1)q(3) = .true.
+!      if(l.le.1)q(4) = .true.
+!      if(m.le.1)q(5) = .true.
 
       
-    END SUBROUTINE CHECK_MIN
+!      do z=1,5
+!         do y=1,5
+!            do w=1,5
+!               do v=1,5
+!                  do u=1,5
+!                  end do
+!               end do
+!            end do
+!         end do
+!      end do
+      
+
+      
+!    END SUBROUTINE CHECK_MIN
 
 !_____________________________________________________________________
     REAL FUNCTION GAMMLN(XX)

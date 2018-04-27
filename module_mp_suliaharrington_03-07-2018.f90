@@ -1,20 +1,40 @@
-MODULE MODULE_MP_SULIAHARRINGTON
+      MODULE MODULE_MP_SULIAHARRINGTON
+      USE module_wrf_error
+!     USE module_utility, ONLY: WRFU_Clock, WRFU_Alarm  ! GT
+!     USE module_domain, ONLY : HISTORY_ALARM, Is_alarm_tstep  ! GT
+
+!     USE module_state_description
+      USE module_dm
+      USE module_comm_dm
+
+      USE ieee_arithmetic
       IMPLICIT NONE
 
+!     INCLUDE 'mpif.h'
 
       REAL, PARAMETER :: PI = 3.1415926535897932384626434
       REAL, PARAMETER :: SQRTPI = 0.9189385332046727417803297
-      LOGICAL, PARAMETER :: PIRE_CHEM = .FALSE.
+      LOGICAL, PARAMETER :: PIRE_CHEM = .TRUE.
 
+      PUBLIC  ::  MP_SULIAHARRINGTON
+!     PUBLIC  ::  SULIAHARRINGTON_INIT
+      PRIVATE  ::  POLYSVP1
+      PRIVATE :: GAMMA
+      PRIVATE :: PI, SQRTPI
+      PRIVATE :: GAMMLN
+!     PRIVATE :: EVOLVE
+      PRIVATE :: FINDGTP
+      PRIVATE :: LENCONV
+      PRIVATE :: FLHS
+      PRIVATE :: CAPACITANCE_GAMMA
+      PRIVATE :: SULIAHARRINGTON_MICRO
 
       REAL, PRIVATE ::  rhoi    !BULK DENSITY OF CLOUD ICE
-      REAL, PRIVATE ::  nu      !DISTRIBUTION SHAPE FACTOR, ICE
-      REAL, PRIVATE ::  nus     !DISTRIBUTION SHAPE FACTOR, SNOW
+      REAL, PRIVATE ::  nu      !DISTRIBUTION SHAPE FACTOR
       REAL, PRIVATE ::  nuc     !ICE NUCLEATION CONCENTRAION (#/L)
       REAL, PRIVATE ::  rd      !GAS CONSTANT OF DRY AIR
       REAL, PRIVATE ::  cp      !SPECIFIC HEAT FOR DRY AIR (CONST P)
       REAL, PRIVATE ::  ao      !INITIAL CHARACTERISTIC A-AXIS LENGTH
-      REAL, PRIVATE ::  co      !INITIAL CHARACTERISTIC C-AXIS LENGTH
       REAL, PRIVATE ::  li0     !INITIAL SEMI-MAJOR AXIS LENGTH
       REAL, PRIVATE ::  mi0     !INITIAL PARTICLE MASS
       REAL, PRIVATE ::  gammnu  !GAMMA DIST WITH SHAPE, NU
@@ -42,7 +62,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       REAL, PRIVATE :: f1r      ! VENTILATION PARAMETER FOR RAIN
       REAL, PRIVATE :: f2r      ! " "
       REAL, PRIVATE :: ar       ! FALL SPEED PARAMETER FOR RAIN
-      REAL, PRIVATE :: ars      ! FALL SPEED PARAMETER FOR SNOW
+      REAL, PRIVATE :: as       ! FALL SPEED PARAMETER FOR SNOW
       REAL, PRIVATE :: rhosu    ! APPROXIMATE AIR DENSITY NEAR 850MB
       REAL, PRIVATE :: rhow     ! DENSITY OF LIQUID WATER
       REAL, PRIVATE :: br       ! FALLSPEED PARAMETER FOR RAIN
@@ -71,11 +91,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
       REAL, PRIVATE :: cons40,cons41
       REAL, PRIVATE :: FUDGE
 
-      REAL, PRIVATE :: coll_ni(5), coll_an(4), coll_cn(4), coll_nu(8), coll_rho(9)
-      REAL, PRIVATE :: coll(5,4,4,8,9), ncoll(5,4,4,8,9)
-      INTEGER, PRIVATE :: ii, jj, kk, ll, mm, iii, jjj, kkk, lll, mmm
-
-
 
 CONTAINS
 !*************************************************************************************
@@ -92,14 +107,12 @@ CONTAINS
       rhoi = 920.
 !     rhoi = 500.
       nu = 4.
-      nus = 4.
-      nuc = 1.
+      nuc = 10.
       rd = 287.15
       cp = 1005.
       cpw = 4187.
-      ao = 1.e-6
-      co = ao
-      li0 = ao
+      ao = .1e-6
+      li0 = 1.e-6
       mi0 = 4./3.*pi*rhoi*(li0)**3
       gammnu = exp(gammln(nu))
       qsmall = 1.e-14
@@ -136,7 +149,7 @@ CONTAINS
 
 !     add constants for rain microphysics
       ar = 841.99667
-      ars = 11.72
+      as = 11.72
       rhosu = 85000./(287.15*273.15)
       rhow = 997.
       f1r = 0.78
@@ -184,51 +197,68 @@ CONTAINS
 
       FUDGE = 0.9999
 
-      iii = 1!5
-      jjj = 1!4
-      kkk = 3!4
-      lll = 8
-      mmm = 9
-
-      OPEN(1,FILE="COLL2.bin")!!Lookup table for aggregation mass and number
-      READ(1) (coll_ni(ii),ii=1,iii) !ni = 1, 10, 100, 1000, 10000 L-1
-      READ(1) (coll_an(jj),jj=1,jjj) !an = 1, 10, 100, 1000, 10000 um
-      READ(1) (coll_cn(kk),kk=1,kkk) !cn = 1, 10, 100, 1000, 10000 um
-      READ(1) (coll_nu(ll),ll=1,lll) !nu = 1, 2, 3, 4, 5, 6, 7, 8
-      READ(1) (coll_rho(mm),mm=1,mmm)!rho = 100, 200, 300, 400, 500, 600, 700, 800, 900 kg/m3
-      READ(1) (((((coll(ii,jj,kk,ll,mm),ii=1,iii),jj=1,jjj),kk=1,kkk),ll=1,lll),mm=1,mmm)
-      READ(1) (((((ncoll(ii,jj,kk,ll,mm),ii=1,iii),jj=1,jjj),kk=1,kkk),ll=1,lll),mm=1,mmm)
-      CLOSE(1)
-      
-
       END SUBROUTINE SULIAHARRINGTON_INIT
 
-      
+!********************************************************************************
+!     THIS SUBROUTINE IS MAIN INTERFACE WITH THE TWO-MOMENT MICROPHYSICS SCHEME
+!     THIS INTERFACE TAKES IN 3D VARIABLES FROM DRIVER MODEL, CONVERTS TO 2D FOR
+!     CALL TO THE MAIN MICROPHYSICS SUBROUTINE (SUBROUTINE SULIAHARRINGTON_MICRO) 
+!     WHICH OPERATES ON A 2D (X-Z) GRID.
+!     2D VARIABLES FROM THE MAIN MICROPHYSICS SUBROUTINE ARE THEN REASSIGNED BACK 
+!     TO 3D FOR OUTPUT BACK TO DRIVER MODEL USING THIS INTERFACE.
+!     MICROPHYSICS TENDENCIES ARE ADDED TO VARIABLES HERE BEFORE BEING PASSED BACK 
+!     TO DRIVER MODEL.
+
+!     THIS CODE WAS WRITTEN BY JERRY HARRINGTON (PSU,JYH10@PSU.EDU), HUGH MORRISON (NCAR), 
+!     AND KARA SULIA (PSU), AND IMPLEMENTED BY KARA SULIA (KJS5066@GMAIL.COM).
+!-------------------------------------------------------------------------------
       SUBROUTINE MP_SULIAHARRINGTON(ID,ITIMESTEP,&
       TH, QV, QC, QR, QI, QS, QG, NC, NR, NI, NS,&
-      NG, AI, CI, AS, CS, RHO, PII, P, DT, DZ, HT, W,    &
+      NG, AI, CI, RHO, PII, P, DT, DZ, HT, W,    &
       CONTACT,PRCOUT, DEP, PRCIOUT,&
       PSACWSOUT, QMULTSOUT,QMULTROUT,PIACROUT,&
       PRACIOUT, PIACRSOUT, PRACISOUT, PRACGOUT,&
       PSACWGOUT,PGSACWOUT,PGRACSOUT, PRDGOUT,&
       EPRDGOUT, EVPMGOUT, PGMLTOUT, QMULTGOUT,QMULTRGOUT,&
-      IMMERSION, PRAIOUT, CFRZR,                 &
-      ICEDEP, ICESUB, RAINEVAP, SNOWEVAP,        &
+      IMMERSION, PRAIOUT, CFRZR, ICEDEP, ICESUB, RAINEVAP, SNOWEVAP, &
       SNOWMELT, SNOWDEP, SNOWSUB, SNOWACCR,      &
       CLOUDCOND, CLOUDEVAP, ICEMELT, ICENUC,     &
       RAINFRZ, CLOUDFRZ, SEDR, SEDI, SEDS,    &
       SEDG, NAGGOUT, NRAGGOUT, NSAGGOUT, PRAOUT &
       ,RAINACC,RAINACCT,SNOWACC,SNOWACCT &
-      ,GRAUPELACC,GRAUPELACCT,FRZNACC,FRZNACCT  &
-      ,PHI,RHOICE,RELH,CPLX,PHIS,RHOS,CPLXS      &
+      ,GRAUPELACC,GRAUPELACCT,FRZNACC,FRZNACCT &
+      ,PHI,RHOICE,RELH      &
       ,IDS,IDE, JDS,JDE, KDS,KDE              & ! domain dims
       ,IMS,IME, JMS,JME, KMS,KME              & ! memory dims
       ,ITS,ITE, JTS,JTE, KTS,KTE              & ! tile   dims
       )
+!*******************************************************************************
 
-        IMPLICIT NONE
+!     QV - water vapor mixing ratio (kg/kg)
+!     QC - cloud water mixing ratio (kg/kg)
+!     QI - cloud ice mixing ratio (kg/kg)
+!     NI - cloud ice number concentration (1/kg)
+!     AI - a-axis length mixing ratio (m/kg)
+!     CI - c-axis length mixing ratio (m/kg)
+!     NOTE: HT NOT USED BY THIS SCHEME AND NOT NEEDED TO BE PASSED INTO SCHEME
+!     P - AIR PRESSURE (PA)
+!     W - VERTICAL AIR VELOCITY (M/S)
+!     TH - POTENTIAL TEMPERATURE (K)
+!     PII - exner function - used to convert potential temp to temp
+!     DZ - difference in height over interface (m)
+!     DT - model time step (sec)
+!     ITIMESTEP - time step counter
+!     RAINACC - accumulated grid-scale precipitation (mm)
+!     RAINACCT - one time step grid scale precipitation (mm/time step)
+!     SNOWACC - accumulated grid-scale snow plus cloud ice (mm)
+!     SNOWACCT - one time step grid scale snow plus cloud ice (mm/time step)
+!     GRAUPELACC - accumulated grid-scale graupel (mm)
+!     GRAUPELACCT - one time step grid scale graupel (mm/time step)
+!     FRZNACC - accumulated grid-scale snow plus cloud ice plus graupel (mm)
+!     FRZNACCT - one time step grid scale snow plus cloud ice plus graupel (mm/time step)
 
-        
+      IMPLICIT NONE
+
       INTEGER, INTENT(IN) :: ids, ide, jds, jde, kds, kde, &
       ims, ime, jms, jme, kms, kme, &
       its, ite, jts, jte, kts, kte, &
@@ -237,7 +267,7 @@ CONTAINS
 !     Temporary changed from INOUT to IN
 
       REAL, DIMENSION(ims:ime, kms:kme, jms:jme), INTENT(INOUT):: &
-      QV, QC, QR, QS, QG, QI, NC, NR, NS, NG, NI, AI, CI, AS, CS, TH
+      QV, QC, QR, QS, QG, QI, NC, NR, NS, NG, NI, AI, CI, TH
 !     , effcs, effis
 
       REAL, DIMENSION(ims:ime, kms:kme, jms:jme), INTENT(IN):: &
@@ -245,7 +275,7 @@ CONTAINS
 
       REAL, DIMENSION(ims:ime, kms:kme, jms:jme), INTENT(INOUT) ::   &
       ICEDEP, ICESUB, RAINEVAP, SNOWEVAP, SNOWMELT,         &
-      SNOWDEP, SNOWSUB, SNOWACCR,     &
+      SNOWDEP, SNOWSUB, SNOWACCR, &
       ICEMELT, ICENUC, RAINFRZ, CLOUDFRZ, PHI, RHOICE, RELH,&
       SEDI, SEDS, SEDR, SEDG, NAGGOUT, NRAGGOUT, NSAGGOUT, PRAOUT, &
       CLOUDCOND, CLOUDEVAP, CONTACT,PRCOUT, DEP, PRCIOUT,&
@@ -253,9 +283,7 @@ CONTAINS
       PRACIOUT, PIACRSOUT, PRACISOUT, PRACGOUT,&
       PSACWGOUT,PGSACWOUT,PGRACSOUT, PRDGOUT,&
       EPRDGOUT, EVPMGOUT, PGMLTOUT, QMULTGOUT,QMULTRGOUT, IMMERSION, &
-      PRAIOUT, CFRZR,&
-      CPLX,PHIS,RHOS,CPLXS
-      
+      PRAIOUT, CFRZR
 
       REAL, DIMENSION(ims:ime, jms:jme), INTENT(IN) :: HT
       REAL, DIMENSION(ims:ime, jms:jme), INTENT(INOUT) :: RAINACC, &
@@ -267,17 +295,16 @@ CONTAINS
       REAL, DIMENSION(its:ite, kts:kte, jts:jte) ::T,THL
 
       REAL, DIMENSION(its:ite, kts:kte) :: QV2D, QC2D, QR2D, QS2D, &
-      QG2D, QI2D, NC2D, NR2D, NS2D, NG2D, NI2D, AI2D, CI2D, AS2D, CS2D, T2D,   &
+      QG2D, QI2D, NC2D, NR2D, NS2D, NG2D, NI2D, AI2D, CI2D, T2D,   &
       RHO2D, P2D, ICEDEP2D, ICESUB2D, RAINEVAP2D, SNOWEVAP2D, SNOWMELT2D,&
       SNOWDEP2D, SNOWSUB2D, SNOWACCR2D, CLOUDCOND2D, CLOUDEVAP2D,  &
-      ICEMELT2D, ICENUC2D, RAINFRZ2D, CLOUDFRZ2D, PHI2D, RHOICE2D, RSED, GSED,&
+      ICEMELT2D, ICENUC2D, RAINFRZ2D, CLOUDFRZ2D, PHI2D, RHOICE2D, &
+      RELH2D, NAGGOUT2D, NRAGGOUT2D, NSAGGOUT2D, PRAOUT2D, RSED, GSED,&
       ISED, SSED, CONTACT2D, PRCOUT2D, DEP2D, PRCIOUT2D, &
       PSACWSOUT2D,QMULTSOUT2D,QMULTROUT2D,PIACROUT2D, PRACIOUT2D, &
       PIACRSOUT2D, PRACISOUT2D, PRACGOUT2D, PSACWGOUT2D,PGSACWOUT2D,&
       PGRACSOUT2D, PRDGOUT2D, EPRDGOUT2D, EVPMGOUT2D, PGMLTOUT2D,&
-      QMULTGOUT2D, QMULTRGOUT2D, IMMERSION2D, PRAIOUT2D, CFRZR2D,&
-      RELH2D, NAGGOUT2D, NRAGGOUT2D, NSAGGOUT2D, PRAOUT2D, &
-      CPLX2D, PHIS2D, RHOS2D, CPLXS2D
+      QMULTGOUT2D, QMULTRGOUT2D, IMMERSION2D, PRAIOUT2D, CFRZR2D
 
       REAL, DIMENSION(its:ite, jts:jte) :: LWP,IWP,PATHVAR,PATHVAR2
       REAL, DIMENSION(kts:kte) ::  avgthl,TOT,TOT2,DZQ
@@ -299,7 +326,7 @@ CONTAINS
       IIN_SUM3
       REAL, SAVE, ALLOCATABLE, DIMENSION(:,:,:) :: IIN_SUMJ1,IIN_SUMJ2,&
       IIN_SUMJ3
-      
+
       IF(PIRE_CHEM)THEN
          time_new = real(start_day) + real(itimestep*dt)/86400.
          IF(int(time_new) .gt. int(time_save))THEN
@@ -335,7 +362,7 @@ CONTAINS
                time_save = int(time_new)
             END IF
          END IF
-                  IF(id == 1)THEN
+         IF(id == 1)THEN
             CCN = CCN1
             IIN_SUM = IIN_SUM1
             IIN_SUMJ = IIN_SUMJ1
@@ -352,11 +379,27 @@ CONTAINS
          if(nhrs .eq. 8) then
             ts = (time_new - int(time_new))*24.
             ihr = int(ts/3)+1 !test this 
+!            if (int(ts) .lt. 3) then  
+!               ihr = 1
+!            else if (int(ts) .ge. 3 .and. int(ts) .lt. 6) then 
+!               ihr = 2
+!            else if (int(ts) .ge. 6 .and. int(ts) .lt. 9) then 
+!               ihr = 3
+!            else if (int(ts) .ge. 9 .and. int(ts) .lt. 12) then 
+!               ihr = 4
+!            else if (int(ts) .ge. 12 .and. int(ts) .lt. 15) then 
+!               ihr = 5
+!            else if (int(ts) .ge. 15 .and. int(ts) .lt. 18) then 
+!               ihr = 6
+!            else if (int(ts) .ge. 18 .and. int(ts) .lt. 21) then 
+!               ihr = 7
+!            else if (int(ts) .ge. 21) then
+!               ihr = 8
+!            end if
          else
             ihr = 1
          end if
       END IF
-        
 
 
 !     LOGICAL, EXTERNAL :: wrf_dm_on_monitor
@@ -390,8 +433,6 @@ CONTAINS
                NG2D(i,k) = NG(i,k,j)
                AI2D(i,k) = AI(i,k,j)
                CI2D(i,k) = CI(i,k,j)
-               AS2D(i,k) = AS(i,k,j)
-               CS2D(i,k) = CS(i,k,j)
 
                T2D(i,k) = T(i,k,j)
 
@@ -409,7 +450,7 @@ CONTAINS
                ICENUC2D(i,k) = ICENUC(i,k,j)
                RAINFRZ2D(i,k) = RAINFRZ(i,k,j)
                CLOUDFRZ2D(i,k) = CLOUDFRZ(i,k,j)
-
+!not sure if the sed and process blocks need to be here
                RSED(i,k) = SEDR(i,k,j)
                GSED(i,k) = SEDG(i,k,j)
                SSED(i,k) = SEDS(i,k,j)
@@ -449,27 +490,26 @@ CONTAINS
             END DO
          END DO
 
-
+        !print*,'start'
 
          CALL SULIAHARRINGTON_MICRO(T2D, DT, QV2D, QC2D, QR2D, QS2D,&
-              QG2D, QI2D, NC2D, NR2D, NS2D, NG2D, NI2D, AI2D, CI2D, AS2D,&
-              CS2D, P2D, RHO2D, DZQ, IMS, IME, JMS, JME, KMS, KME, ITS,  &
-              ITE, JTS, JTE, KTS, KTE, IDS, IDE, JDS, JDE, KDS, KDE, &
-              ITIMESTEP, ICEDEP2D, ICESUB2D, RAINEVAP2D, SNOWEVAP2D,      &
-              SNOWMELT2D, SNOWDEP2D, SNOWSUB2D, SNOWACCR2D, CLOUDCOND2D,  &
-              CLOUDEVAP2D, ICEMELT2D, ICENUC2D, RAINFRZ2D, CLOUDFRZ2D,    &
-              RSED, ISED, SSED, GSED, NAGGOUT2D, NRAGGOUT2D, NSAGGOUT2D, &
-              PRAOUT2D, PHI2D, RHOICE2D, RELH2D, IIN, CCN, IIN_SUM,IIN_SUMJ,&
-              PRECPRT, SNOWRT, SNOWPRT, GRPLPRT, IHR, NHRS,                 &
-              CONTACT2D,PRCOUT2D, DEP2D, PRCIOUT2D, PSACWSOUT2D, &
-              QMULTSOUT2D,QMULTROUT2D,PIACROUT2D, PRACIOUT2D, PIACRSOUT2D,&
-              PRACISOUT2D, PRACGOUT2D, PSACWGOUT2D,PGSACWOUT2D,&
-              PGRACSOUT2D, PRDGOUT2D, EPRDGOUT2D, EVPMGOUT2D, PGMLTOUT2D,&
-              QMULTGOUT2D, QMULTRGOUT2D, IMMERSION2D, PRAIOUT2D, CFRZR2D,&
-              CPLX2D,PHIS2D,RHOS2D,CPLXS2D)
+         QG2D, QI2D, NC2D, NR2D, NS2D, NG2D, NI2D, AI2D, CI2D, P2D, &
+         RHO2D, DZQ, IMS, IME, JMS, JME, KMS, KME, ITS, ITE, JTS,   &
+         JTE, KTS, KTE, IDS, IDE, JDS, JDE, KDS, KDE, &
+         ITIMESTEP, ICEDEP2D, ICESUB2D, RAINEVAP2D, SNOWEVAP2D,      &
+         SNOWMELT2D, SNOWDEP2D, SNOWSUB2D, SNOWACCR2D, CLOUDCOND2D,  &
+         CLOUDEVAP2D, ICEMELT2D, ICENUC2D, RAINFRZ2D, CLOUDFRZ2D,    &
+         RSED, ISED, SSED, GSED, NAGGOUT2D, NRAGGOUT2D, NSAGGOUT2D, &
+         PRAOUT2D, PHI2D, RHOICE2D, RELH2D, IIN, CCN, IIN_SUM,IIN_SUMJ,&
+         PRECPRT, SNOWRT, SNOWPRT, GRPLPRT, IHR, NHRS,&
+         CONTACT2D,PRCOUT2D, DEP2D, PRCIOUT2D, PSACWSOUT2D, &
+         QMULTSOUT2D,QMULTROUT2D,PIACROUT2D, PRACIOUT2D, PIACRSOUT2D,&
+         PRACISOUT2D, PRACGOUT2D, PSACWGOUT2D,PGSACWOUT2D,&
+         PGRACSOUT2D, PRDGOUT2D, EPRDGOUT2D, EVPMGOUT2D, PGMLTOUT2D,&
+         QMULTGOUT2D, QMULTRGOUT2D, IMMERSION2D, PRAIOUT2D, CFRZR2D)
 
 !     TRANSFER 2D ARRAYS BACK TO 3D FOR WRF
-
+       !print*,'end'
 
          DO i=its,ite
             DO k=kts,kte
@@ -488,8 +528,6 @@ CONTAINS
                NG(i,k,j) = NG2D(i,k)
                AI(i,k,j) = AI2D(i,k)
                CI(i,k,j) = CI2D(i,k)
-               AS(i,k,j) = AS2D(i,k)
-               CS(i,k,j) = CS2D(i,k)
                T(i,k,j) = T2D(i,k)
                TH(i,k,j) = T(i,k,j)/PII(i,k,j)
 
@@ -518,27 +556,49 @@ CONTAINS
                NRAGGOUT(i,k,j) = NRAGGOUT2D(i,k)
                NSAGGOUT(i,k,j) = NSAGGOUT2D(i,k)
                PRAOUT(i,k,j) = PRAOUT2D(i,k)
+               CONTACT(i,k,j) = CONTACT2D(i,k)
+               PRCOUT(i,k,j) = PRCOUT2D(i,k)
+               DEP(i,k,j) = DEP2D(i,k)
+               PRCIOUT(i,k,j) = PRCIOUT2D(i,k)
+               PSACWSOUT(i,k,j) = PSACWSOUT2D(i,k)
+               PIACROUT(i,k,j) = PIACROUT2D(i,k)
+               PRACIOUT(i,k,j) = PRACIOUT2D(i,k)
+               PIACRSOUT(i,k,j) = PIACRSOUT2D(i,k)
+               PRACISOUT(i,k,j) = PRACISOUT2D(i,k)
+               PRACGOUT(i,k,j) = PRACGOUT2D(i,k)
+               PSACWGOUT(i,k,j) = PSACWGOUT2D(i,k)
+               PGSACWOUT(i,k,j) = PGSACWOUT2D(i,k)
+               PGRACSOUT(i,k,j) = PGRACSOUT2D(i,k)
+               PRDGOUT(i,k,j) = PRDGOUT2D(i,k)
+               EPRDGOUT(i,k,j) = EPRDGOUT2D(i,k)
+               EVPMGOUT(i,k,j) = EVPMGOUT2D(i,k)
+               PGMLTOUT(i,k,j) = PGMLTOUT2D(i,k)
+               QMULTGOUT(i,k,j) = QMULTGOUT2D(i,k)
+               QMULTRGOUT(i,k,j) = QMULTRGOUT2D(i,k)
+               IMMERSION(i,k,j) = IMMERSION2D(i,k)
+!               print*,'immersion= ', IMMERSION(i,k,j)
+               PRAIOUT(i,k,j) = PRAIOUT2D(i,k)
+               CFRZR(i,k,j) = CFRZR2D(i,k)
 
                RHOICE(i,k,j) = RHOICE2D(i,k)
                RELH(i,k,j) = RELH2D(i,k)
                PHI(i,k,j) = PHI2D(i,k)
-               CPLX(i,k,j) = CPLX2D(i,k)
-
-               RHOS(i,k,j) = RHOS2D(i,k)
-               PHIS(i,k,j) = PHIS2D(i,k)
-               CPLXS(i,k,j) = CPLXS2D(i,k)
                THL(i,k,j)=TH(i,k,j)*exp((-QC(i,k,j)*2.46E6)/&
                (cp*T(i,k,j)))
 
             END DO              !end k loop
 
          RAINACC(i,j) = RAINACC(i,j)+PRECPRT(i)
+!         print*,'RAINACC',RAINACC(i,j)
          RAINACCT(i,j) = PRECPRT(i)
          SNOWACC(i,j) = SNOWACC(i,j)+SNOWPRT(i)
+!         print*,'SNOWACC',SNOWACC(i,j)
          SNOWACCT(i,j) = SNOWPRT(i)
          GRAUPELACC(i,j) = GRAUPELACC(i,j)+GRPLPRT(i)
+!         print*,'GRAUPELACC',GRAUPELACC(i,j)
          GRAUPELACCT(i,j) = GRPLPRT(i)
          FRZNACC(i,j) = FRZNACC(i,j) + SNOWRT(i)
+!         print*,'FRZNACC',FRZNACC(i,j)
          FRZNACCT(i,j) = SNOWRT(i)
          END DO
       END DO
@@ -547,18 +607,18 @@ CONTAINS
          
 !*****************************************************************************
       SUBROUTINE SULIAHARRINGTON_MICRO(t, dt, qv, qc, qr, qs, qg, qi, nc,  &
-      nr, ns, ng, ni, ai, ci, as, cs, p, rho, dzq, ims, ime, jms, jme, kms, kme,   &
+      nr, ns, ng, ni, ai, ci, p, rho, dzq, ims, ime, jms, jme, kms, kme,   &
       its, ite, jts, jte, kts, kte, ids, ide, jds, jde, kds, kde,      &
       itimestep,icedep, icesub, rainevap,&
       snowevap, snowmelt, snowdep, snowsub, snowaccr, cloudcond,       &
       cloudevap, icemelt, icenuc, rainfrz, cloudfrz, rsed, ised, ssed, &
       gsed, naggout, nraggout, nsaggout,   &
       praout, phi, rhoice, relh, iin, ccn, iin_sum, iin_sumj, &
-      precprt, snowrt, snowprt, grplprt, ihr, nhrs, contact,&
+      precprt, snowrt, snowprt, grplprt,ihr,nhrs, contact,&
       prcout, dep, prciout, psacwsout, qmultsout, qmultrout, piacrout,&
       praciout, piacrsout, pracisout, pracgout, psacwgout, pgsacwout,&
       pgracsout, prdgout, eprdgout, evpmgout, pgmltout, qmultgout,&
-      qmultrgout, immersion, praiout, cfrzr, cplx, phis, rhos, cplxs)
+      qmultrgout, immersion, praiout, cfrzr)
 !****************************************************************************
 
       IMPLICIT NONE
@@ -570,21 +630,22 @@ CONTAINS
       itimestep, nhrs
 
       REAL, DIMENSION(its:ite,kts:kte) :: &
-      qv, qc, qr, qs, qg, qi, nc, nr, ns, ng, ni, ai, ci, as, cs, t
+      qv, qc, qr, qs, qg, qi, nc, nr, ns, ng, ni, ai, ci, t
  
       REAL, DIMENSION(its:ite,kts:kte) :: &
       icedep, icesub, rainevap, snowevap, snowmelt, snowdep, snowsub,&
-      snowaccr, cloudcond, cloudevap, icemelt, icenuc, rainfrz, cloudfrz
+      snowaccr, cloudcond, cloudevap, icemelt, icenuc, rainfrz, &
+      cloudfrz, dep, contact
 
-      REAL, DIMENSION(kts:kte) :: dzq, ised, ssed, gsed, rsed
+      REAL, DIMENSION(kts:kte) :: dzq
+      REAL, DIMENSION(its:ite,kts:kte) :: ised, ssed, gsed, rsed
 
-      REAL, DIMENSION(its:ite,kts:kte) :: p, rho, rhoice,phi,relh, &
-           cplx,rhos,phis,cplxs
+      REAL, DIMENSION(its:ite,kts:kte) :: p, rho, rhoice,phi,relh
       REAL :: dt
 
-      INTEGER i, k, iflag, nstep, n, iaspect, homofreeze,&
-      ipart, resupply, sphrflag, SEDON, RAINON,       &
-      DSTRCHECKS, ICE_CALCS, EVOLVE_ON, snowflag, ice_start_time,    &
+      INTEGER i, k, iflag, nstep, n, iaspect, ISDACflag, homofreeze,&
+      masssizeflag, ipart, resupply, sphrflag, SEDON, RAINON,       &
+      DSTRCHECKS, ICE_CALCS, EVOLVE_ON, snow_on, ice_start_time,    &
       processes, LTRUE, CNUM, redden, nucleation, icontactflag,     &
       ccnflag, graupel, demottflag, ihr
 
@@ -667,10 +728,6 @@ CONTAINS
 
       REAL lammin, lammax, lamc, pgam
 
-      !snow characteristics (aggregate microphysics)
-      REAL ans, cns, rns, rhobars, deltastrs, vs, swci, swcf, phisf, rnsf, &
-           vtbarbs, vtbarbms, vtbarblens, ards, ansf, crds, cnsf, phiis
-      
       REAL, DIMENSION(its:ite,kts:kte) :: vtrmi1, vtrni1, vtrli1, &
       effi1, vtrmc
 
@@ -689,8 +746,8 @@ CONTAINS
       qmultrout, piacrout, praciout, piacrsout, pracisout,&
       pracgout, psacwgout, pgsacwout, pgracsout, prdgout, eprdgout,&
       evpmgout, pgmltout, qmultgout, qmultrgout, immersion, praiout, &
-      cfrzr, dep, contact
-      
+      cfrzr
+
       REAL umc, unc, ums, umr, umg, uns, unr, ung
       
       REAL, DIMENSION(kts:kte) :: thetal,dthl
@@ -700,7 +757,7 @@ CONTAINS
       rgvm
 
       REAL, DIMENSION(its:ite) :: precprt, snowrt, snowprt, grplprt
-      
+
       REAL ncloud, cdist1
 
 !     parameters for rain microphysics
@@ -726,40 +783,47 @@ CONTAINS
       ,1.46114,  1.47097,  1.48087, 1.50105,  1.50087,  1.51098/
 
       INTEGER, PARAMETER :: nin = 15, nccn = 8
-      INTEGER size_opt, n1, n2
+      INTEGER size_opt
       REAL :: IIN(ide,jde,kde),CCN(ide,kde,nhrs,nccn),&
                           IIN_SUM(ide,jde,kde), IIN_SUMJ(ide,kde)
       
-      REAL rdry(nin), ccnsup(nccn), denom, nuc1, nuc_in!, n1, n2
+      REAL rdry(nin),ccnsup(nccn), denom, nuc1, n1,&
+           n2, nuc_in
       DATA rdry/1.500E-02, 3.182E-02, 6.364E-02, 1.255E-01,2.291E-01&
       ,3.873E-01, 6.225E-01, 9.843E-01, 1.531E+00, 2.312E+00&
       ,3.269E+00, 5.214E+00, 9.708E+00, 1.632E+01, 2.541E+01/ !microns
       DATA ccnsup/0.001,0.002,0.003,0.004,0.005,0.006,0.007,0.008/
 
+!      print*,"initialized rdry",rdry
+
       resupply=0
+      masssizeflag=0
       ipart=1                   !0 for RAMS dendrites and needles (Walko et al., 1995)
 !     1 for RAMS plates and columns (Walko et al., 1995)
 !     2 for Mitchell's mass relations (hex plates, columns)
 !     3 for Mitchell's mass relations (stellars, columns)
 !     4 for Wood's (2007) mass-size relations
       iaspect    = 0            !set constant aspect ratio (sensitivity study)
+      ISDACflag  = 0            !test for ISDAC intercomparison
       sphrflag   = 0            !all ice assumed spheres
-      redden     = 0
+      redden     = 0            !reduces density of spheres
       homofreeze = 1            !homogeneous freezing
-      snowflag   = 2            !snow calculations, 0 = all snow off, 1 = only old snow, 2 = only new snow
+      snow_on    = 1            !ice --> snow & aggregation
       SEDON      = 1            !sedimentation
       EVOLVE_ON  = 1            !depositional growth
       RAINON     = 1            !rain processes
       ICE_CALCS  = 1            !all ice calculations
-      ice_start_time = 0. !time to begin ice nucleation & homogeneous freezing
+      ice_start_time = 60.*60.*4.0 !time to begin ice nucleation & homogeneous freezing !LG change to 4
       LTRUE = 0
-      graupel = 0               !1 on
+      graupel = 1               !1 on
       processes = 1
-      nucleation = 0 !0 simple, 1 meyers, 2 demott
+      nucleation = 2 !0 simple, 1 meyers, 2 demott
       demottflag = 1 !0 DeMott 2010, 1 DeMott 2015
       icontactflag = 0 !0 contact freezing off, 1 on
       ccnflag = 0 !0 CCN from aerosol data used, 1 CCN from aerosol data NOT used
 
+      IF(ISDACflag .EQ. 1) homofreeze=0
+      IF(ISDACflag .eq. 1) rhoi = 88.4
       IF(sphrflag  .eq. 1) rhoi = 920.
       If(redden .eq. 1) rhoi = 500.
   
@@ -773,11 +837,9 @@ CONTAINS
       grplprt = 0.0
       qt_adv=0.0
       qt_sed=0.0
-
+        !print*,'here1'
       DO i = its,ite
          DO k = kts,kte
-
-            !ICE CRYSTALS (MONOMERS)
             IF(qi(i,k).gt.qsmall.and.ni(i,k).gt.qsmall)THEN
                ni(i,k) = max(ni(i,k),qsmall)
                ai(i,k) = max(ai(i,k),qsmall)
@@ -785,6 +847,7 @@ CONTAINS
 
                ani = ((ai(i,k)**2)/(ci(i,k)*nu*ni(i,k)))**(1./3.)
                cni = ((ci(i,k)**2)/(ai(i,k)*nu*ni(i,k)))**(1./3.)
+
             ELSE 
                qi(i,k) = 0.0
                ni(i,k) = 0.0
@@ -795,47 +858,26 @@ CONTAINS
             ai(i,k) = nu*ni(i,k)*ani
             ci(i,k) = nu*ni(i,k)*cni
 
-            !SNOW (AGGREGATES)
-            IF(snowflag .eq. 2)THEN
-               IF(qs(i,k) .gt. qsmall .and. ns(i,k) .gt. qsmall)THEN
-                  ns(i,k) = max(ns(i,k),qsmall)
-                  as(i,k) = max(as(i,k),qsmall)
-                  cs(i,k) = max(cs(i,k),qsmall)
-
-                  ans = ((as(i,k)**2)/(cs(i,k)*nus*ns(i,k)))**(1./3.)
-                  cns = ((cs(i,k)**2)/(as(i,k)*nus*ns(i,k)))**(1./3.)
-                  as(i,k) = nus*ns(i,k)*ans
-                  cs(i,k) = nus*ns(i,k)*cns
-               END IF
-            END IF
-            IF(qs(i,k).lt.qsmall)THEN
-               qs(i,k) = 0.
-               ns(i,k) = 0.
-               as(i,k) = 0.
-               cs(i,k) = 0.
-            END IF
-
-            !CLOUD WATER
             IF(qc(i,k).lt.qsmall)THEN
                qc(i,k) = 0.
                nc(i,k) = 0.
             END IF
-
-            !RAIN
             IF(qr(i,k).lt.qsmall)THEN
                qr(i,k) = 0.
                nr(i,k) = 0.
             END IF
-
-            !GRAUPEL
+            IF(qs(i,k).lt.qsmall)THEN
+               qs(i,k) = 0.
+               ns(i,k) = 0.
+            END IF
             IF(qg(i,k).lt.qsmall)THEN
                qg(i,k) = 0.
                ng(i,k) = 0.
             END IF
 
 !     initialize process rates
-            mnuccd = 0.;mnuccr = 0.;mnuccc = 0.
-            nnuccd = 0.;nnuccr = 0.;nnuccc = 0.
+            mnuccd = 0.;mnuccr = 0.;mnuccc = 0.;mnucci = 0.
+            nnuccd = 0.;nnuccr = 0.;nnuccc = 0.;nnucci = 0.
 
             pcc = 0.0; prc = 0.0; nprc = 0.0; nprc1 = 0.0
             pra = 0.0; npra = 0.0; nragg = 0.0
@@ -883,15 +925,11 @@ CONTAINS
             qrloss2(k)=0.0
             phi(i,k)=1.0
 
-            ised(k) = 0.0
-            rsed(k) = 0.0
-            gsed(k) = 0.0
-            ssed(k) = 0.0  
+            ised(i,k) = 0.0; rsed(i,k) = 0.0; gsed(i,k) = 0.0
+            ssed(i,k) = 0.0  
 
-            naggout(i,k) = 0.0
-            nraggout(i,k) = 0.0
-            nsaggout(i,k) = 0.0
-            praout(i,k) = 0.0
+            naggout(i,k) = 0.0; nraggout(i,k) = 0.0
+            nsaggout(i,k) = 0.0; praout(i,k) = 0.0
 
             rainevap(i,k) = 0.0; snowevap(i,k) = 0.0
             snowmelt(i,k) = 0.0; snowdep(i,k) = 0.0; snowsub(i,k) = 0.0
@@ -917,6 +955,7 @@ CONTAINS
 
             deltastr = 1.
             rhobar = 920.
+            IF(ISDACflag .eq. 1) rhobar = 88.4
             If(redden .eq. 1) rhoi = 500.
             temp = t(i,k)
             celsius = temp-273.15
@@ -963,21 +1002,10 @@ CONTAINS
 !     "a" parameter for cloud droplet fallspeed, based on Stokes Law
             acn(k) = g*rhow/(18.*mu)
 !     "a" parameter for snow fall speed
-            asn(k) = (rhosu/rho(i,k))**0.54*ars
+            asn(k) = (rhosu/rho(i,k))**0.54*as
 !     "a" parameter for graupel fall speed
             agn(k) = (rhosu/rho(i,k))**0.54*ag
-            !     set droplet concentration (units of kg-1)
-
-            IF(celsius .le. -1. .and. celsius .ge. -59.)THEN 
-               weight = (ABS(real(int(celsius))) + 1.0) - ABS(celsius)
-               igr1 = gammaFindSumTrip(int(celsius)*(-1))
-               igr2 = gammaFindSumTrip((int(celsius)*(-1))+1)
-               igr = weight*igr1 + (1.-weight)*igr2    
-            ELSE IF(celsius .lt. -60.)THEN
-               igr = 1.5
-            ELSE
-               igr = 1.0
-            END IF
+!     set droplet concentration (units of kg-1)
 
             IF(PIRE_CHEM)THEN
                IF(ccnflag .EQ. 0) THEN
@@ -994,10 +1022,10 @@ CONTAINS
                      nc(i,k) = 0.0
                   END IF
                ELSE
-                  nc(i,k)=1000. !testing with less than 1200.e6
+                  nc(i,k)=1200.
                END IF
             ELSE
-               nc(i,k)=200.
+               nc(i,k)=1200.
             END IF
             nc(i,k) = nc(i,k)*1.e6/rho(i,k)
            
@@ -1062,26 +1090,24 @@ CONTAINS
                CDIST1 = nc(i,k)/gamma(pgam+1.)
             END IF              !qc >=qsmall
 !     SNOW---------------------------------------------------------------------------------
-            IF(snowflag .eq. 1)THEN
-               IF(qs(i,k).ge.qsmall)THEN
-                  lams = (cons1*ns(i,k)/qs(i,k))**(1./DS)
-                  n0s = ns(i,k)*lams
+            IF(qs(i,k).ge.qsmall)THEN
+               lams = (cons1*ns(i,k)/qs(i,k))**(1./DS)
+               n0s = ns(i,k)*lams
                   
-                  IF(lams.lt.lammins)THEN
-                     lams = lammins
-                     n0s = lams**4*qs(i,k)/cons1
-                     ns(i,k) = n0s/lams
-                  ELSE IF(lams.gt.lammaxs)THEN
-                     lams = lammaxs
-                     n0s = lams**4*qs(i,k)/cons1
-                     ns(i,k) = n0s/lams
-                  END IF
-                  qsdum = 2.*pi*n0s*rho(i,k)*(f1s/(lams*lams)+&
-                       f2s*SQRT(asn(k)*rho(i,k)/mu)*sc**(1./3.)*cons10/&
-                       (lams**cons35))
-               END IF           !qs >= qsmall
-            END IF!snowflag
-            
+               IF(lams.lt.lammins)THEN
+                  lams = lammins
+                  n0s = lams**4*qs(i,k)/cons1
+                  ns(i,k) = n0s/lams
+               ELSE IF(lams.gt.lammaxs)THEN
+                  lams = lammaxs
+                  n0s = lams**4*qs(i,k)/cons1
+                  ns(i,k) = n0s/lams
+               END IF
+               qsdum = 2.*pi*n0s*rho(i,k)*(f1s/(lams*lams)+&
+               f2s*SQRT(asn(k)*rho(i,k)/mu)*sc**(1./3.)*cons10/&
+               (lams**cons35))
+            END IF           !qs >= qsmall
+
             if(qg(i,k).ge.qsmall)then
                 lamg = (cons2*ng(i,k)/qg(i,k))**(1./DG)
                 n0g = ng(i,k)*lamg
@@ -1148,28 +1174,26 @@ CONTAINS
                   pre = 0.
                END IF        
             !     collection of snow by rain above freezing
-               !     formula from Ikawa and Saito (1991)
-               IF(snowflag .eq. 1)THEN
-                  IF(qr(i,k).ge.1.e-8.and.qs(i,k).ge.1.e-8)THEN
-                     ums = asn(k)*cons3/(lams**bs)
-                     umr = arn(k)*cons4/lamr**br
-                     uns = asn(k)*cons5/lams**bs
-                     unr = arn(k)*cons6/lamr**br
-                     !     set realistic limits on fallspeeds
+!     formula from Ikawa and Saito (1991)
+               IF(qr(i,k).ge.1.e-8.and.qs(i,k).ge.1.e-8)THEN
+                  ums = asn(k)*cons3/(lams**bs)
+                  umr = arn(k)*cons4/lamr**br
+                  uns = asn(k)*cons5/lams**bs
+                  unr = arn(k)*cons6/lamr**br
+!     set realistic limits on fallspeeds
                      
-                     dum = (rhosu/rho(i,k))**0.54
-                     ums = min(ums,1.2*dum)
-                     uns = min(uns,1.2*dum)
-                     umr = min(umr,9.1*dum)
-                     unr = min(unr,9.1*dum)
+                  dum = (rhosu/rho(i,k))**0.54
+                  ums = min(ums,1.2*dum)
+                  uns = min(uns,1.2*dum)
+                  umr = min(umr,9.1*dum)
+                  unr = min(unr,9.1*dum)
                      
-                     pracs = cons41*(SQRT((1.2*umr-0.95*ums)**2 + 0.08*&
-                          ums*umr)*rho(i,k)*n0rr*n0s/lamr**3* &
-                          (5./(lamr**3*lams)+2./(lamr*lamr*lams*lams)+0.5/&
-                          (lamr*lams**3)))
-                  END IF        !qr & qs >=1.e-8
-               END IF!snowflag
-                  !     collection of graupel by rain above freezing
+                  pracs = cons41*(SQRT((1.2*umr-0.95*ums)**2 + 0.08*&
+                  ums*umr)*rho(i,k)*n0rr*n0s/lamr**3* &
+                  (5./(lamr**3*lams)+2./(lamr*lamr*lams*lams)+0.5/&
+                  (lamr*lams**3)))
+               END IF        !qr & qs >=1.e-8
+!     collection of graupel by rain above freezing
                IF(graupel .eq. 1)then
                   IF(qr(i,k).ge.1.e-8.and.qg(i,k).ge.1.e-8)then
                      umg = agn(k)*cons7/(lamg**BG)
@@ -1198,20 +1222,18 @@ CONTAINS
                END IF
 !     melting of snow
 !     snow may persist above freezing, from Rutledge and Hobbs (1984)
-               !     if supersat, snow melts to form rain
-               IF(snowflag .eq. 1)THEN
-                  IF(qs(i,k).ge.1.e-8)THEN
-                     dum = -cpw/xxlf*(temp-273.15)*pracs
-                     psmlt = qsdum*kap*(273.15-temp)/xxlf+dum
-                     IF(qvqvs.lt.1.)THEN
-                        epss = qsdum*dv
-                        evpms = (qv(i,k)-qvs)*epss/ab
-                        evpms = max(evpms,psmlt)
-                        psmlt = psmlt-evpms
-                     END IF
-                  END IF        !qs>=1.e-8
-                  pracs = 0.
-               END IF!snowflag
+!     if supersat, snow melts to form rain
+               IF(qs(i,k).ge.1.e-8)THEN
+                  dum = -cpw/xxlf*(temp-273.15)*pracs
+                  psmlt = qsdum*kap*(273.15-temp)/xxlf+dum
+                  IF(qvqvs.lt.1.)THEN
+                     epss = qsdum*dv
+                     evpms = (qv(i,k)-qvs)*epss/ab
+                     evpms = max(evpms,psmlt)
+                     psmlt = psmlt-evpms
+                  END IF
+               END IF        !qs>=1.e-8
+               pracs = 0.
 
 !       melting of graupel
 !       graupel may persist above freezing, from Rutledge and Hobbs
@@ -1251,16 +1273,14 @@ CONTAINS
                   pre = pre*ratio
                END IF
 
-               !     conservation of qs
-               IF(snowflag.eq.1)THEN
-                  dum = (pracs-evpms-psmlt)*dt !melting, evap, & accretion of snow
-                  IF(dum.gt.qs(i,k).and.qs(i,k).ge.qsmall)THEN
-                     ratio = qs(i,k)/dum
-                     pracs = pracs*ratio
-                     psmlt = psmlt*ratio
-                     evpms = evpms*ratio
-                  END IF
-               END IF!snowflag
+!     conservation of qs
+               dum = (pracs-evpms-psmlt)*dt !melting, evap, & accretion of snow
+               IF(dum.gt.qs(i,k).and.qs(i,k).ge.qsmall)THEN
+                  ratio = qs(i,k)/dum
+                  pracs = pracs*ratio
+                  psmlt = psmlt*ratio
+                  evpms = evpms*ratio
+               END IF
 
 !     conservation of qg
                dum = (-pgmlt-evpmg-pracg)*dt
@@ -1281,13 +1301,11 @@ CONTAINS
                   dum = max(-1.,dum)
                   nsmlts = dum*ns(i,k)/dt
                END IF
-               IF(snowflag.eq.1)THEN
-                  IF(psmlt.lt.0.0)THEN
-                     dum = (psmlt)*dt/qs(i,k)
-                     dum = max(-1.,dum)
-                     nsmltr = dum*ns(i,k)/dt
-                  END IF
-               ENDIF
+               IF(psmlt.lt.0.0)THEN
+                  dum = (psmlt)*dt/qs(i,k)
+                  dum = max(-1.,dum)
+                  nsmltr = dum*ns(i,k)/dt
+               END IF
                IF(evpmg+pgmlt.lt.0.0)THEN
                   dum = (evpmg+pgmlt)*dt/qg(i,k)
                   dum = max(-1.,dum)
@@ -1314,28 +1332,24 @@ CONTAINS
                   nprc1 = min(nprc1,nprc)
                END IF
 
-               !     aggregation of qs
-               IF(snowflag.eq.1)THEN
-                  IF(qs(i,k).ge.1.e-8)THEN
-                     nsagg = cons15*asn(k)*(qs(i,k)*rho(i,k))**&
-                          ((2.+BS)/3.)*(ns(i,k)*rho(i,k))**((4.-BS)/3.)&
-                          /rho(i,k)
-                  END IF
+!     aggregation of qs
+               IF(qs(i,k).ge.1.e-8)THEN
+                  nsagg = cons15*asn(k)*(qs(i,k)*rho(i,k))**&
+                  ((2.+BS)/3.)*(ns(i,k)*rho(i,k))**((4.-BS)/3.)&
+                  /rho(i,k)
                END IF
 
-!     accretion of cloud droplets onto snow/graupel
+!     accretion of cloud droples onto snow/graupel
 !     use continuous growth equations with
 !     simple gravitational collection kernel ignoring snow
                if(graupel .eq. 1)then
-                  IF(snowflag.eq.1)THEN
-                     if(qs(i,k) .ge.1.e-8.and.qc(i,k).ge.qsmall)then
-                        psacws = cons13*asn(k)*qc(i,k)*rho(i,k)*n0s/&
-                             lams**(BS+3.)
-                        
-                        npsacws = cons13*asn(k)*nc(i,k)*rho(i,k)*n0s/&
-                             lams**(BS+3.)
-                     end if
-                  END IF
+                  if(qs(i,k) .ge.1.e-8.and.qc(i,k).ge.qsmall)then
+                     psacws = cons13*asn(k)*qc(i,k)*rho(i,k)*n0s/&
+                         lams**(BS+3.)
+                     
+                     npsacws = cons13*asn(k)*nc(i,k)*rho(i,k)*n0s/&
+                         lams**(BS+3.)
+                  end if
 !     collection of cloud water by graupel
                   if(qg(i,k).ge.1.e-8.and.qc(i,k).ge.qsmall)then
                      psacwg = cons14*agn(k)*qc(i,k)*rho(i,k)*n0g/&
@@ -1346,43 +1360,42 @@ CONTAINS
                   end if
                end if
                
-               !     accretion of rain water by snow
-               IF(snowflag.eq.1)THEN
-                  IF(qr(i,k).ge.1.e-8.and.qs(i,k).ge.1.e-8)THEN
-                     ums = asn(k)*cons3/(lams**bs)
-                     umr = arn(k)*cons4/lamr**br
-                     uns = asn(k)*cons5/lams**bs
-                     unr = arn(k)*cons6/lamr**br
-                     !     set realistic limits on fallspeeds
+!     accretion of rain water by snow
+               IF(qr(i,k).ge.1.e-8.and.qs(i,k).ge.1.e-8)THEN
+                  ums = asn(k)*cons3/(lams**bs)
+                  umr = arn(k)*cons4/lamr**br
+                  uns = asn(k)*cons5/lams**bs
+                  unr = arn(k)*cons6/lamr**br
+!     set realistic limits on fallspeeds
                      
-                     dum = (rhosu/rho(i,k))**0.54
-                     ums = min(ums,1.2*dum)
-                     uns = min(uns,1.2*dum)
-                     umr = min(umr,9.1*dum)
-                     unr = min(unr,9.1*dum)
+                  dum = (rhosu/rho(i,k))**0.54
+                  ums = min(ums,1.2*dum)
+                  uns = min(uns,1.2*dum)
+                  umr = min(umr,9.1*dum)
+                  unr = min(unr,9.1*dum)
                      
-                     pracs1 = cons41*(SQRT((1.2*umr-0.95*ums)**2 + 0.08*&
-                          ums*umr)*rho(i,k)*n0rr*n0s/lamr**3* &
-                          (5./(lamr**3*lams)+2./(lamr*lamr*lams*lams)+0.5/&
-                          (lamr*lams**3)))
-                     
-                     npracs1 = cons32*rho(i,k)*(1.7*(unr-uns)**2 + 0.3*&
-                          unr*uns)**0.5*n0rr*n0s*(1./(lamr**3*lams) + 1./&
-                          (lamr**2*lams**2)+1./(lamr*lams**3))
-                     
-                     pracs1 = min(pracs,qr(i,k)/dt)
-                     
-                     !     collection of snow by rain -- needed for graupel conversion calcs
-                     !     only calculate if snow and rain mixing ratios exceed 0.1 g/kg
-                     
-                     if(qs(i,k).ge.0.1e-3.and.qr(i,k).ge.0.1e-3)then
-                        psacr = cons31*(((1.2*umr-0.95*ums)**2+0.08*ums*&
-                             umr)**0.5*rho(i,k)*n0rr*n0s/lams**3*(5./(lams**3*&
-                             lamr)+2./(lams**2*lamr**2)+0.5/(lams*lamr**3)))
-                     end if
-                     
-                  END IF
-               END IF!snowflag
+                  pracs1 = cons41*(SQRT((1.2*umr-0.95*ums)**2 + 0.08*&
+                  ums*umr)*rho(i,k)*n0rr*n0s/lamr**3* &
+                  (5./(lamr**3*lams)+2./(lamr*lamr*lams*lams)+0.5/&
+                  (lamr*lams**3)))
+
+                  npracs1 = cons32*rho(i,k)*(1.7*(unr-uns)**2 + 0.3*&
+                  unr*uns)**0.5*n0rr*n0s*(1./(lamr**3*lams) + 1./&
+                  (lamr**2*lams**2)+1./(lamr*lams**3))
+
+                  pracs1 = min(pracs,qr(i,k)/dt)
+
+!     collection of snow by rain -- needed for graupel conversion calcs
+!     only calculate if snow and rain mixing ratios exceed 0.1 g/kg
+
+                  if(qs(i,k).ge.0.1e-3.and.qr(i,k).ge.0.1e-3)then
+                     psacr = cons31*(((1.2*umr-0.95*ums)**2+0.08*ums*&
+                        umr)**0.5*rho(i,k)*n0rr*n0s/lams**3*(5./(lams**3*&
+                        lamr)+2./(lams**2*lamr**2)+0.5/(lams*lamr**3)))
+                  end if
+
+               END IF
+
 !     collection of rainwater by graupel, Ikawa and Saito 1990
                IF(graupel.eq.1)then
                   IF(qr(i,k).ge.1.e-8.and.qg(i,k).ge.1.e-8)then
@@ -1414,41 +1427,39 @@ CONTAINS
 
 !     rime-splintering of snow
 !     hallet-mossop 1974
-               !     number of splinters formed is based on mass of rimed water
-               
+!     number of splinters formed is based on mass of rimed water
                IF (graupel .eq. 1)THEN
-                  IF (snowflag .ne.0)THEN
-                     if(qs(i,k).ge.0.1e-3)then
-                        if(qc(i,k).ge.0.5e-3.or.qr(i,k).ge.0.1e-3)then
-                           if(psacws.gt.0.0.or.pracs1.gt.0.0)then
-                              if(temp.le.270.16.and.temp.gt.268.16)then
-                                 fmult = (270.16-temp)/2.
-                              else if(temp.ge.265.16.and.temp.le.268.16)then
-                                 fmult = (temp-265.16)/3.
-                              else
-                                 fmult = 0.0
-                              end if
-                           end if
-                           !     splintering from droplets accreted onto snow
-                           if(psacws.gt.0.0)then
-                              nmults = 35.e4*psacws*fmult*1000.
-                              qmults = nmults*mmult
-                              !     constrain so that transfer of mass from snow to ice cannot be more mass
-                              !     than was rimed onto snow
-                              qmults = min(qmults,psacws)
-                              psacws = psacws-qmults
-                           end if
-                           
-                           if(pracs.gt.0.)then
-                              nmultr = 35.e4*pracs1*fmult*1000.
-                              qmultr = nmultr*mmult
-                              
-                              qmultr = min(qmultr,pracs1)
-                              pracs1 = pracs1-qmultr
+                  if(qs(i,k).ge.0.1e-3)then
+                     if(qc(i,k).ge.0.5e-3.or.qr(i,k).ge.0.1e-3)then
+                        if(psacws.gt.0.0.or.pracs1.gt.0.0)then
+                           if(temp.le.270.16.and.temp.gt.268.16)then
+                              fmult = (270.16-temp)/2.
+                           else if(temp.ge.265.16.and.temp.le.268.16)then
+                              fmult = (temp-265.16)/3.
+                           else
+                              fmult = 0.0
                            end if
                         end if
+!     splintering from droplets accreted onto snow
+                        if(psacws.gt.0.0)then
+                           nmults = 35.e4*psacws*fmult*1000.
+                           qmults = nmults*mmult
+!     constrain so that transfer of mass from snow to ice cannot be more mass
+!     than was rimed onto snow
+                           qmults = min(qmults,psacws)
+                           psacws = psacws-qmults
+                        end if
+                   
+                        if(pracs.gt.0.)then
+                           nmultr = 35.e4*pracs1*fmult*1000.
+                           qmultr = nmultr*mmult
+                           
+                           qmultr = min(qmultr,pracs1)
+                           pracs1 = pracs1-qmultr
+                        end if
                      end if
-                  END IF!snowflag
+                  end if
+              
 !     rime-splintering of graupel
                   if(qg(i,k).ge.0.1e-3)then
                      if(qc(i,k).ge.0.5e-3.or.qr(i,k).ge.0.1e-3)then
@@ -1481,45 +1492,44 @@ CONTAINS
                      end if
                   end if
 
-                  !     conversion of rimed cloud water onto snow to graupel
-                  IF(snowflag.eq.1)THEN
-                     if(psacws.gt.0.0)then
-                        if(qs(i,k).ge.0.1e-3.and.qc(i,k).ge.0.5e-3)then
-                           !     portion of riming converted to graupel
-                           pgsacw = min(psacws,cons17*dt*n0s*qc(i,k)*&
-                                qc(i,k)*asn(k)*asn(k)/(rho(i,k)*lams**&
-                                (2.*BS+2.)))
-                           
-                           dum = max(rhosn/(rhog-rhosn)*pgsacw,0.)
-                           nscng = dum/mg0*rho(i,k)
-                           nscng = min(nscng,ns(i,k)/dt)
-                           !     portion of riming left for snow
-                           psacws = psacws - pgsacw 
-                        end if
+!     conversion of rimed cloud water onto snow to graupel
+                  if(psacws.gt.0.0)then
+                     if(qs(i,k).ge.0.1e-3.and.qc(i,k).ge.0.5e-3)then
+!     portion of riming converted to graupel
+                        pgsacw = min(psacws,cons17*dt*n0s*qc(i,k)*&
+                           qc(i,k)*asn(k)*asn(k)/(rho(i,k)*lams**&
+                           (2.*BS+2.)))
+                        
+                        dum = max(rhosn/(rhog-rhosn)*pgsacw,0.)
+                        nscng = dum/mg0*rho(i,k)
+                        nscng = min(nscng,ns(i,k)/dt)
+!     portion of riming left for snow
+                        psacws = psacws - pgsacw 
                      end if
-                     
-                     !     conversion of rimed rain water onto snow converted to graupel
-                     if(pracs.gt.0.0)then
-                        if(qs(i,k).ge.0.1e-3.and.qr(i,k).ge.0.1e-3)then
-                           dum = cons18*(4./lams)**3*(4./lams)**3 &
-                                /(cons18*(4./lams)**3*(4./lams)**3+&
-                                cons19*(4./lamr)**3*(4./lamr)**3)
-                           dum = min(dum,1.)
-                           dum = max(dum,0.)
-                           pgracs = (1.-dum)*pracs1
-                           ngracs = (1.-dum)*npracs1
-                           ngracs = min(ngracs,nr(i,k)/dt)
-                           ngracs = min(ngracs,ns(i,k)/dt)
-                           
-                           pracs1 = pracs1 - pgracs
-                           npracs1 = npracs1 - ngracs
-                           
-                           psacr = psacr*(1.-dum)
-                        end if
+                  end if
+                  
+!     conversion of rimed rain water onto snow converted to graupel
+                  if(pracs.gt.0.0)then
+                     if(qs(i,k).ge.0.1e-3.and.qr(i,k).ge.0.1e-3)then
+                        dum = cons18*(4./lams)**3*(4./lams)**3 &
+                           /(cons18*(4./lams)**3*(4./lams)**3+&
+                           cons19*(4./lamr)**3*(4./lamr)**3)
+                        dum = min(dum,1.)
+                        dum = max(dum,0.)
+                        pgracs = (1.-dum)*pracs1
+                        ngracs = (1.-dum)*npracs1
+                        ngracs = min(ngracs,nr(i,k)/dt)
+                        ngracs = min(ngracs,ns(i,k)/dt)
+                        
+                        pracs1 = pracs1 - pgracs
+                        npracs1 = npracs1 - ngracs
+                        
+                        psacr = psacr*(1.-dum)
                      end if
+                  end if
 
-                     END IF!snowflag
-                  END IF           !graupel
+
+               END IF           !graupel
 
 !     accretion of cloud water by rain
 !     continuous collection eq with grav. coll. kernel, droplet fall spd neglected
@@ -1583,17 +1593,16 @@ CONTAINS
                   end if
                END IF
     
-               !     deposition of qs
-               IF(snowflag.eq.1)THEN
-                  IF(qs(i,k).ge.qsmall)THEN
-                     epss = 2.*pi*n0s*rho(i,k)*dv*(f1s/(lams*lams)+&
-                          f2s*(asn(k)*rho(i,k)/mu)**0.5*sc**(1./3.)*cons10/&
-                          (lams**cons35))
-                  ELSE
-                     epss = 0.0
-                  END IF
-                  prds = epss*(qv(i,k)-qvi)/abi
-               END IF!snowflag
+!     deposition of qs
+               IF(qs(i,k).ge.qsmall)THEN
+                  epss = 2.*pi*n0s*rho(i,k)*dv*(f1s/(lams*lams)+&
+                     f2s*(asn(k)*rho(i,k)/mu)**0.5*sc**(1./3.)*cons10/&
+                     (lams**cons35))
+               ELSE
+                  epss = 0.0
+               END IF      
+               prds = epss*(qv(i,k)-qvi)/abi
+
 !     deposition of graupel
                IF(graupel.eq.1)then
                   if(qg(i,k).ge.qsmall)then
@@ -1721,22 +1730,169 @@ CONTAINS
 !     get deltastr from cni and ani
 !     deltastr = 1 for ice particles pre-diagnosed as spheres
                
+               IF((log(ani)-log(ao)).gt. 0.01 &
+                  .and.(log(cni)-log(ao)).gt.0.001)THEN
+                  deltastr = (log(cni)-log(ao))/(log(ani)-log(ao))
+               ELSE
+                  deltastr = 1.
+               ENDIF
+               IF(ISDACflag .eq. 1)deltastr = 1.0
+               IF(iaspect .eq. 1) deltastr = 0.8
+               IF(masssizeflag .eq. 1) deltastr=1.0
+        IF(sphrflag .eq. 1) deltastr = 1.0  
+!     make sure deltastr within reasonable limits
+!     IF(deltastr.lt.0.7)THEN
                
-               !check that deltastr, rhobar, and rni are within reasonable bounds
-               CALL ICE_CHECKS(1,ni(i,k),qi(i,k),ani,cni,rni,deltastr,rhobar,&
-                    iaspect,sphrflag,redden,betam,alphstr,alphv)
+!     deltastr = 0.7
+!     cni=ao**(1.-deltastr)*ani**deltastr
+!     ci(i,k)=nu*ni(i,k)*cni
+               
+!     ELSE IF (deltastr.gt.1.5)THEN
+               
+!     deltastr=1.5
+!     cni=ao**(1.-deltastr)*ani**deltastr
+!     ci(i,k)=nu*ni(i,k)*cni
+               
+!     END IF
+               
+               if(deltastr.lt.0.55) then
+                  voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
+                  (exp(gammln(NU+deltastr+2.)))/gammnu
+                  deltastr=0.55
+                  ani=((3.*voltmp*gammnu)/ &
+                  (4.*pi*ao**(1.-deltastr)*(exp(gammln(NU+deltastr+2.)))))** &
+                  (1./(2.+deltastr))
+                  ai(i,k)=max((NU*ni(i,k)*ani),1.e-20)
+                  ani=ai(i,k)/(NU*ni(i,k))
+               else if (deltastr.gt.1.5) then
+                  voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
+                  (exp(gammln(NU+deltastr+2.)))/gammnu
+                  deltastr=1.5
+                  ani=((3.*voltmp*gammnu)/ &
+                  (4.*pi*ao**(1.-deltastr)*(exp(gammln(NU+deltastr+2.)))))** &
+                  (1./(2.+deltastr))
+                  ai(i,k)=max((NU*ni(i,k)*ani),1.e-20)
+                  ani=ai(i,k)/(NU*ni(i,k))
+                  cni=ao**(1.-deltastr)*ani**deltastr
+                  ci(i,k)=max((NU*ni(i,k)*cni),1.e-20)
+                  cni=ci(i,k)/(nu*ni(i,k))
+               endif
+               
+               betam = 2.+deltastr
+               alphstr = ao**(1.-deltastr)
+               alphv = (4./3.)*pi*alphstr
+               
+!     get avg ice density 
+               
+               rhobar = qi(i,k)*gammnu/(ni(i,k)*alphv* &
+               ani**betam*exp(gammln(nu+betam)))
+               
+               IF(ISDACflag .eq. 1) rhobar = 88.4
+               IF(masssizeflag .eq. 1.or.sphrflag.eq.2) rhobar = 920.
+               If(redden .eq. 1) rhoi = 500.
 
-               ci(i,k)=nu*ni(i,k)*cni
-               ai(i,k)=nu*ni(i,k)*ani
+!     rhobar=500.
+!     check bounds for ice density
+               IF(rhobar.gt.920.)THEN 
+                  
+                  rhobar=920.
+                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
+                  exp(gammln(nu+betam))))**(1./betam)
+                  cni=ao**(1.-deltastr)*ani**deltastr
+                  ci(i,k)=nu*ni(i,k)*cni
+                  ai(i,k)=nu*ni(i,k)*ani
+                  
+               ELSE IF(rhobar.lt.50.)THEN
+
+                  rhobar=50.
+                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
+                  exp(gammln(nu+betam))))**(1./betam)
+                  cni=ao**(1.-deltastr)*ani**deltastr
+                  ci(i,k)=nu*ni(i,k)*cni
+                  ai(i,k)=nu*ni(i,k)*ani
+                  
+               END IF
+!     get rni (characteristic equivalent volume ice radius)
+
+
+               rni = (qi(i,k)*3./(ni(i,k)*rhobar*4.*pi*&
+               (exp(gammln(nu+deltastr+2.))/gammnu)))**(1./3.)
+
+               IF(masssizeflag .eq. 1)THEN
+                  rni=ani
+                  IF(cni.gt.ani)rni=cni
+               ENDIF
                
+!     make sure rni is within reasonable bounds,
+               
+               IF(rni.lt.2.e-6)THEN
+                  
+                  rni=2.e-6
+                  ni(i,k)=3.*qi(i,k)*gammnu/(4.*pi*rhobar*rni**3.*&
+                  (exp(gammln(nu+deltastr+2.))))
+                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv* &
+                  exp(gammln(nu+betam))))**(1./betam) 
+!                  IF(masssizeflag .eq. 1)THEN
+!                     IF(ani.ge.cni)ani=rni
+!                     IF(cni.gt.ani)cni=rni
+!                     betam=betamp
+!                     ni(i,k)=(qi(i,k)*exp(gammln(nu+betam)))/&
+!                     (rni**betam*alphamsp*gammnu)
+!                     IF(ani.ge.cni)cni=ao**(1.-deltastr)*ani**deltastr
+!                     IF(cni.gt.ani)ani=ao**(deltastr-1.)*cni**&
+!                     (1./deltastr)
+!                  ELSE
+                     cni=ao**(1.-deltastr)*ani**deltastr
+!                  ENDIF
+                  ci(i,k)=nu*ni(i,k)*cni
+                  ai(i,k)=nu*ni(i,k)*ani
+                  
+               ELSE IF(rni.gt.2.e-3)THEN
+                  
+                  rni=2.e-3
+                  ni(i,k)=3.*qi(i,k)*gammnu/(4.*pi*rhobar*rni**3.* &
+                  (exp(gammln(nu+deltastr+2.))))
+                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv* &
+                  exp(gammln(nu+betam))))**(1./betam)
+!                  IF(masssizeflag .eq. 1)THEN
+!                     IF(ani.ge.cni)ani=rni
+!                     IF(cni.gt.ani)cni=rni
+!                     betam=betamp
+!                     ni(i,k)=(qi(i,k)*exp(gammln(nu+betam)))/&
+!                     (rni**betam*alphamsp*gammnu)
+!                     IF(ani.ge.cni)cni=ao**(1.-deltastr)*ani**deltastr
+!                     IF(cni.gt.ani)ani=ao**(deltastr-1.)*ani**&
+!                     (1./deltastr)
+!                  ELSE
+                     cni=ao**(1.-deltastr)*ani**deltastr
+!                  END IF
+                  ci(i,k)=nu*ni(i,k)*cni
+                  ai(i,k)=nu*ni(i,k)*ani
+               END IF  
                
 !     get iwc to calculate iwc tendency
 !     by substracting final and initial values
                vi = 4./3.*pi*rni**3.*exp(gammln(nu+deltastr+2.))/gammnu 
                iwci = ni(i,k)*rhobar*vi*rho(i,k)
-
+!     IF(masssizeflag.eq.1)&
+!     iwci=ni(i,k)*rho(i,k)*alpham*rni**betam*&
+!     (gammnu/exp(gammln(nu+deltastr+2.)))**(3./betam) 
+               
+!     calculate the particle inherent growth ratio (IGR) based on temp
+!     igr=1 for ice particles pre-diagnosed as spheres
+               IF(celsius .le. -1. .and. celsius .ge. -59.)THEN 
+                  weight = (ABS(real(int(celsius))) + 1.0) - ABS(celsius)
+                  igr1 = gammaFindSumTrip(int(celsius)*(-1))
+                  igr2 = gammaFindSumTrip((int(celsius)*(-1))+1)
+                  igr = weight*igr1 + (1.-weight)*igr2    
+               ELSE IF(celsius .lt. -60.)THEN
+                  igr = 1.5
+               ELSE
+                  igr = 1.0
+               END IF
 
                IF(iaspect .eq. 1) igr = .27
+               IF(ISDACflag .eq. 1) igr = 1.0
                IF(sphrflag .eq. 1) igr=1.0
                If(redden .eq. 1) rhoi = 500.
 !     calculate number concentration from number mixing ratio
@@ -1745,13 +1901,13 @@ CONTAINS
                   
                   nidum = ni(i,k)*rho(i,k)
                   
-                  CALL EVOLVE(1,ani,nidum,sui,sup,qvv,temp,press,igr,dt,iwcf,&
+                  CALL EVOLVE(ani,nidum,sui,sup,qvv,temp,press,igr,dt,iwcf,&
                   cnf,iwci,phii,phif,cni,rni,rnf,anf,deltastr,mu,&
                   rhobar,vtbarb,vtbarbm,alphstr,vtbarblen,rhoa,i,k,iaspect&
-                  ,ipart,sphrflag,redden,itimestep) 
+                  ,ISDACflag,masssizeflag,ipart,sphrflag,redden,itimestep) 
                   
                   betam = deltastr + 2.0
-                  alphstr = co/ao**(deltastr)
+                  alphstr = ao**(1.-deltastr)
                   alphv = 4./3.*pi*alphstr
                   
                   phi(i,k)=phif
@@ -1764,62 +1920,9 @@ CONTAINS
                   crd=(cnf-cni)*nu*ni(i,k)/dt 
                END IF           !EVOLVE_ON
             END IF              !ice is present
-            !     END IF                 !ICE_CALCS
-
-            IF(snowflag.eq.2)THEN
-               IF(qs(i,k).gt.qsmall.and.ns(i,k).gt.qsmall)THEN
-               
-                  ns(i,k) = max(ns(i,k),qsmall)
-                  as(i,k) = max(as(i,k),qsmall)
-                  cs(i,k) = max(cs(i,k),qsmall)
-                  
-                  ans = as(i,k)/(nus*ns(i,k))
-                  cns = cs(i,k)/(nus*ns(i,k))
-       
-                  !check that deltastr, rhobar, and rni are within reasonable bounds
-                  CALL ICE_CHECKS(2,ns(i,k),qs(i,k),ans,cns,rns,deltastrs,rhobars,&
-                       iaspect,sphrflag,redden,betam,alphstr,alphv)
-                  
-                  cs(i,k)=nus*ns(i,k)*cns
-                  as(i,k)=nus*ns(i,k)*ans
-                  
-                  
-                  !     get iwc to calculate iwc tendency
-                  !     by substracting final and initial values
-                  vs = 4./3.*pi*rns**3.*exp(gammln(nus+deltastrs+2.))/exp(gammln(nus)) 
-                  swci = ns(i,k)*rhobars*vs*rho(i,k)
-                  
-                  IF(iaspect .eq. 1) igr = .27
-                  IF(sphrflag .eq. 1) igr=1.0
-                  If(redden .eq. 1) rhobars = 100.
-                  !     calculate number concentration from number mixing ratio
-                  
-                  IF(EVOLVE_ON .eq. 1) THEN
-                     
-                     nidum = ns(i,k)*rho(i,k)
-                     
-                     CALL EVOLVE(2,ans,nidum,sui,sup,qvv,temp,press,igr,dt,swcf,&
-                          cnsf,swci,phiis,phisf,cns,rns,rnsf,ans,deltastrs,mu,&
-                          rhobars,vtbarbs,vtbarbms,alphstr,vtbarblens,rhoa,i,k,iaspect&
-                          ,ipart,sphrflag,redden,itimestep) 
-                     
-                     betam = deltastr + 2.0
-                     alphstr = co/ao**(deltastr)
-                     alphv = 4./3.*pi*alphstr
-                     
-                     phis(i,k)=phisf
-                     
-                     !     get deposition/sublimation process rates for qi, ai, and ci
-                     !     deposition rate for ice [=] kg/kg/s (mixing ratio rate)
-                     
-                     prds=(swcf-swci)/rho(i,k)/dt              
-                     ards=(ansf-ans)*nus*ns(i,k)/dt
-                     crds=(cnsf-cns)*nus*ns(i,k)/dt 
-                  END IF           !EVOLVE_ON
-               END IF              !snow is present
-            END IF!snowflag
-            
-!     get ice nucleation 
+!     END IF                 !ICE_CALCS
+!     get ice nucleation
+                !print*,'here2' 
             IF(REAL(itimestep)*dt.gt.ice_start_time)THEN !.and.& 
                IF(PIRE_CHEM)THEN
 
@@ -1833,7 +1936,7 @@ CONTAINS
                END IF
 
                 IF(nucleation .eq. 0) then 
-                   CALL SIMPLENUC(temp,sui,rho(i,k),ni(i,k),&
+                   CALL SIMPLENUC(temp,sui,ISDACflag,rho(i,k),ni(i,k),&
                      dt,mnuccd,nnuccd,nuc1,rdry,nin)
                 ELSE IF (nucleation .eq. 1) then
                    CALL MEYERS(temp,sui,rho(i,k),ni(i,k),dt,mnuccd,pgam,&
@@ -1843,34 +1946,33 @@ CONTAINS
                         rdry,nin,demottflag,nnucci,mnucci)                
                 END IF
              END IF
-            
+           
+
+        !print*,'here3'
+ 
 !     make sure doesn't push into subsat or supersat
             
             iflag=0
-            prd1=prd+prds
-            IF(prd1.lt.0.0.and.sui.ge.0.0)THEN
-               IF(prd1.lt.-FUDGE*sui*qvi/abi/dt)THEN
-                  prd = -FUDGE*sui*qvi/abi/dt*(prd/prd1)
-                  prds = -FUDGE*sui*qvi/abi/dt*(prds/prd1)
-                  iflag = 1
+            prd1=prd
+            IF(prd.lt.0.0.and.sui.ge.0.0)THEN
+               IF(prd.lt.-FUDGE*sui*qvi/abi/dt)THEN
+                   prd = -FUDGE*sui*qvi/abi/dt
+                   iflag = 1
                END IF
             END IF 
-            IF(prd1.lt.0.0.and.sui.lt.0.0)THEN
-               IF(prd1.lt.FUDGE*sui*qvi/abi/dt)THEN
-                  prd = FUDGE*sui*qvi/abi/dt*(prd/prd1)
-                  prds = FUDGE*sui*qvi/abi/dt*(prds/prd1)
-                  iflag = 1
+            IF(prd.lt.0.0.and.sui.lt.0.0)THEN
+               IF(prd.lt.FUDGE*sui*qvi/abi/dt)THEN
+                 prd = FUDGE*sui*qvi/abi/dt
+                 iflag = 1
                END IF
             END IF
-            IF((prd1.gt.0..and.prd1.gt.FUDGE*sui*qvi/abi/dt))THEN
-               prd=FUDGE*sui*qvi/abi/dt*(prd/prd1)
-               prds=FUDGE*sui*qvi/abi/dt*(prds/prd1)
+            IF((prd.gt.0..and.prd.gt.FUDGE*sui*qvi/abi/dt))THEN
+               prd=FUDGE*sui*qvi/abi/dt
                iflag=1
             END IF
 
 !     conservation checks
             prd=max(prd,-qi(i,k)/dt)
-            
 !     add growth tendencies to get updated variables
             qi(i,k)=qi(i,k)+(prd)*dt
             ai(i,k)=ai(i,k)+(ard)*dt
@@ -1882,13 +1984,12 @@ CONTAINS
                icesub(i,k) = prd
             ENDIF
 
-
-            !     if sublimation, reduce crystal number,
-            !     NOTE: this should not impact rhobar, since
-            !     rhobar contains terms with qi/ni and ratio
-            !     of qi/ni is assumed constant during loss of ni
-
             IF(qi(i,k).ge.qsmall.and.ni(i,k).gt.qsmall)THEN
+
+!     if sublimation, reduce crystal number,
+!     NOTE: this should not impact rhobar, since
+!     rhobar contains terms with qi/ni and ratio
+!     of qi/ni is assumed constant during loss of ni
                
                IF(prd.lt.0.)THEN
                   ni(i,k)=ni(i,k)+prd*ni(i,k)/qi(i,k)*dt
@@ -1903,155 +2004,154 @@ CONTAINS
 !     since growth rate prd must be scaled back
                
                IF(iflag.eq.1)THEN
-                  alphstr=co/ao**(deltastr)
+                  alphstr=ao**(1.-deltastr)
                   alphv=4./3.*pi*alphstr
                   betam=2.+deltastr   
                   
                   ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
                   exp(gammln(nu+betam))))**(1./betam)
-
-                  cni=co*(ani/ao)**deltastr
+!                  IF(masssizeflag .eq. 1)THEN
+!                     betam=betamp
+!                     ani=((qi(i,k)*gammnu)/(ni(i,k)*alphamsp*&
+!                     exp(gammln(nu+betam))))**(1./betam)
+!                  END IF
+                  cni=ao**(1.-deltastr)*ani**deltastr
+                  ci(i,k)=nu*ni(i,k)*cni
+                  ai(i,k)=nu*ni(i,k)*ani
                END IF           ! iflag = 1
 
-               CALL R_CHECK(1,qi(i,k),ni(i,k),cni,ani,rni,rhobar,deltastr,&
-                    betam,alphstr,alphv)
+               rni = (qi(i,k)*3./(ni(i,k)*rhobar*4.*pi*&
+               (exp(gammln(nu+deltastr+2.))/gammnu)))**(1./3.)
+!     make sure rni is within reasonable bounds,
                
-               ci(i,k)=nu*ni(i,k)*cni
-               ai(i,k)=nu*ni(i,k)*ani
+               IF(rni.lt.2.e-6)THEN
+                  
+                  rni=2.e-6
+                  ni(i,k)=3.*qi(i,k)*gammnu/(4.*pi*rhobar*rni**3*&
+                  (exp(gammln(nu+deltastr+2.))))
+                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv* &
+                  exp(gammln(nu+betam))))**(1./betam) 
+                  ci(i,k)=nu*ni(i,k)*cni
+                  ai(i,k)=nu*ni(i,k)*ani
+                  
+               ELSE IF(rni.gt.2.e-3)THEN
+                  
+                  rni=2.e-3
+                  ni(i,k)=3.*qi(i,k)*gammnu/(4.*pi*rhobar*rni**3* &
+                  (exp(gammln(nu+deltastr+2.))))
+                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv* &
+                  exp(gammln(nu+betam))))**(1./betam)
+                  ci(i,k)=nu*ni(i,k)*cni
+                  ai(i,k)=nu*ni(i,k)*ani
+               END IF  
             END IF              ! q > qsmall
             
-
-
-            if(snowflag.eq.2)then
-               prds=max(prds,-qs(i,k)/dt)
-               
-               qs(i,k)=qs(i,k)+(prds)*dt
-               as(i,k)=as(i,k)+(ards)*dt
-               cs(i,k)=cs(i,k)+(crds)*dt
-               
-               IF(prds .gt. 0.0)THEN
-                  snowdep(i,k) = prds
-               ELSE
-                  snowsub(i,k) = prds
-               ENDIF
-
-               !     if sublimation, reduce snow number,
-               !     NOTE: this should not impact rhobars, since
-               !     rhobars contains terms with qs/ns and ratio
-               !     of qs/ns is assumed constant during loss of ns
-               
-               IF(qs(i,k).ge.qsmall.and.ns(i,k).gt.qsmall)THEN
-               
-                  IF(prds.lt.0.)THEN
-                     ns(i,k)=ns(i,k)+prds*ns(i,k)/qs(i,k)*dt
-                  END IF
-
-                  !     set minimum ni to avoid taking root of a negative number
-                  ns(i,k)=max(ns(i,k),qsmall)
-                  
-                  !     if iflag=1, then recalculate as and cs assuming same deltastrs
-                  !     and same rhobars
-                  !     this is needed for consistency between qs, as, cs, etc.
-                  !     since growth rate prd must be scaled back
-               
-                  IF(iflag.eq.1)THEN
-                     alphstr=co/ao**(deltastrs)
-                     alphv=4./3.*pi*alphstr
-                     betam=2.+deltastrs   
-                     
-                     ans=((qs(i,k)*exp(gammln(nus+betam)))/(rhobars*ns(i,k)*alphv*&
-                          exp(gammln(nus+betam))))**(1./betam)
-                     
-                     cns=co*(ans/ao)**deltastrs
-                  END IF           ! iflag = 1
-                  
-                  CALL R_CHECK(2,qs(i,k),ns(i,k),cns,ans,rns,rhobars,deltastrs,&
-                       betam,alphstr,alphv)
-               
-                  cs(i,k)=nus*ns(i,k)*cns
-                  as(i,k)=nus*ns(i,k)*ans
-               END IF              ! q > qsmall
-            end if
-
-            !     calculate simplified aggregation for snow category 
-            !     kjs 02/2015
-            
-            !     First, calulcate the aggregate-available ice,
-            !     which is the amount of ice that would autoconvert to snow
-            !     in traditional schemes. This is for r_i > 125 um.
-
             betam=2.+deltastr
-            alphstr=co/ao**(deltastr)
-            alphv=4./3.*pi*alphstr
+            alphstr=ao**(1.-deltastr)
+            alphv=4./3.*pi*alphstr     
+
+!     calculate simplified aggregation for snow category 
+!     kjs 02/2015
             
-            IF(snowflag .eq. 1)THEN
-               IF(qi(i,k).ge.1.e-8.and.qv(i,k)/qvi.gt.1..and.rni.gt.0.)THEN
-                  nprci = 4./DCS/rhobar*(qv(i,k)-qvi)*rho(i,k)*ni(i,k)&
-                       /rni*exp(-DCS/rni)*dv/abi ! #/kg/s
-                  prci = 4./3.*pi*rhobar*DCS**3*nprci !kg/kg/s
-                  !     Second, if the aggregate-available ice mass mixing ratio is
-                  !     > 1.e-8 kg/kg, then calculate total aggregate number and mass
-                  !     and add it to the snow category.  The aggeagates are assumed 
-                  !     to be spheres and have a density of rhosn=100 kg/m3.
-                  agg = 0.
-                  nagg = 0.
-                  IF(prci*dt.gt.1.e-8)THEN
-                     dum2 = cons15*asn(k)
-                     nagg = dum2*(rho(i,k)*prci*dt)**((2.+BS)/3.)*&
-                          (nprci*dt*rho(i,k))**((4.-BS)/3.)/rho(i,k) !#/kg/s
-                     !                  print*,'nagg',nagg
-                     agg = 4./3.*pi*rhosn*DCS**3*nagg !kg/kg/s
-                  END IF
-                  !     Third, update qs, ns, qi, ni, ai, and ci due to aggregation. 
-                  !     Assume rhobar remains the same.
-                  !     Note: agg & nagg are negative numbers
-                  
-                  IF(nagg .ne. 0.0)THEN 
-                     qs(i,k) = qs(i,k) - agg*dt
-                     ns(i,k) = ns(i,k) - nagg*dt
-                     
-                     qi(i,k) = qi(i,k) + agg*dt
-                     ni(i,k) = ni(i,k) + nagg*dt
-                  END IF
-                  
-                  !adding collection rates for output
-                  naggout(i,k) = nagg !#kg^-1 s^-1
-                  !               print*,'naggout',naggout(i,k)
-                  nraggout(i,k) = nragg
-                  nsaggout(i,k) = nsagg
-               END IF
-               
-               IF(qi(i,k).gt.qsmall.and.ni(i,k).gt.qsmall)THEN
-                  ani = ((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
-                       exp(gammln(nu+betam))))**(1./betam)
-                  cni=co*(ani/ao)**deltastr
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani  
-               END IF
-               ns(i,k)=max(ns(i,k),qsmall)
-               IF(qs(i,k).lt.qsmall.or.ns(i,k).lt.qsmall)THEN
-                  qs(i,k) = 0.0
-                  ns(i,k) = 0.0
-               END IF
+!     First, calulcate the aggregate-available ice,
+!     which is the amount of ice that would autoconvert to snow
+!     in traditional schemes. This is for r_i > 125 um.
 
-            ELSE IF(snowflag.eq.2)THEN
-               CALL COLL_LOOKUP(ni(i,k),ani,cni,rhobar,agg,nagg)
-
+            IF(qi(i,k).ge.1.e-8.and.qv(i,k)/qvi.gt.1..and.rni.gt.0.)THEN
+               nprci = 4./DCS/rhobar*(qv(i,k)-qvi)*rho(i,k)*ni(i,k)&
+               /rni*exp(-DCS/rni)*dv/abi ! #/kg/s
+               prci = 4./3.*pi*rhobar*DCS**3*nprci !kg/kg/s
+!     Second, if the aggregate-available ice mass mixing ratio is
+!     > 1.e-8 kg/kg, then calculate total aggregate number and mass
+!     and add it to the snow category.  The aggeagates are assumed 
+!     to be spheres and have a density of rhosn=100 kg/m3.
+               agg = 0.
+               nagg = 0.
+               IF(prci*dt.gt.1.e-8)THEN
+                  dum2 = cons15*asn(k)
+                  nagg = dum2*(rho(i,k)*prci*dt)**((2.+BS)/3.)*&
+                  (nprci*dt*rho(i,k))**((4.-BS)/3.)/rho(i,k) !#/kg/s
+!                  print*,'nagg',nagg
+                  agg = 4./3.*pi*rhosn*DCS**3*nagg !kg/kg/s
+               END IF
+!     Third, update qs, ns, qi, ni, ai, and ci due to aggregation. 
+!     Assume rhobar remains the same.
+!     Note: agg & nagg are negative numbers
                
-               
-            END IF!snowflag
+               IF(nagg .ne. 0.0)THEN 
+                  qs(i,k) = qs(i,k) - agg*dt
+                  ns(i,k) = ns(i,k) - nagg*dt
+                  
+                  qi(i,k) = qi(i,k) + agg*dt
+                  ni(i,k) = ni(i,k) + nagg*dt
+               END IF
+              
+               !adding collection rates for output
+               naggout(i,k) = nagg !#kg^-1 s^-1
+!               print*,'naggout',naggout(i,k)
+               nraggout(i,k) = nragg
+               nsaggout(i,k) = nsagg
+               prciout(i,k) = prci
+            END IF
+            
+            IF(qi(i,k).gt.qsmall.and.ni(i,k).gt.qsmall)THEN
+               ani = ((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
+               exp(gammln(nu+betam))))**(1./betam)
+               cni=ao**(1.-deltastr)*ani**deltastr
+               ci(i,k)=nu*ni(i,k)*cni
+               ai(i,k)=nu*ni(i,k)*ani  
+            END IF
+            ns(i,k)=max(ns(i,k),qsmall)
+            IF(qs(i,k).lt.qsmall.or.ns(i,k).lt.qsmall)THEN
+               qs(i,k) = 0.0
+               ns(i,k) = 0.0
+            END IF
+            
 !..................................................................
 !     now update qi, ni, ai, and ci due to ice nucleation
 !     for simplicity, assume that rhobar and deltastr are 
 !     constant during nucleation (probably not the best assumption,
 !     should look into future modifications....)
-            
-            qiold = qi(i,k)
-            qi(i,k)=qi(i,k)+(mnuccc+mnuccd)*dt
-            ni(i,k)=ni(i,k)+(nnuccc+nnuccd)*dt
 
+!     add tendencies to temp, water vapor
+!     if qi < qsmall, then zero out ni, ai, ci
+
+
+!     make sure not to evaporate more liquid than available
+            IF((mnuccc+mnucci)*dt .lt. qc(i,k))then
+               qi(i,k)=qi(i,k)+(mnuccc+mnucci)*dt
+               ni(i,k)=ni(i,k)+(nnuccc+nnucci)*dt
+               qc(i,k)=qc(i,k)-(mnuccc+mnucci)*dt
+               nc(i,k)=nc(i,k)-(nnuccc+nnucci)*dt
+               temp=temp+((mnuccc+mnucci)*xxlf/cpm*dt)
+               icenuc(i,k) = mnuccc+mnucci 
+               contact(i,k) = mnuccc
+               immersion(i,k) = mnucci
+               print*,'qc',qc(i,k),mnuccc,mnucci
+            ELSE
+               qi(i,k)=qi(i,k)+qc(i,k)
+               ni(i,k)=ni(i,k)+nc(i,k)
+               temp=temp+qc(i,k)*xxlf/cpm
+               qc(i,k)=0.0
+               nc(i,k)=0.0
+               icenuc(i,k)=qc(i,k)
+               contact(i,k)=qc(i,k)*mnuccc/(mnuccc+mnucci)
+               immersion(i,k)=qc(i,k)*mnucci/(mnuccc+mnucci)
+            END IF
+            
+            qi(i,k)=qi(i,k)+(prd+mnuccd)*dt
+            ni(i,k)=ni(i,k)+(nnuccd)*dt
+            qv(i,k)=qv(i,k)-(prd+mnuccd)*dt
+            temp=temp+((prd+mnuccd)*xxls/cpm*dt)
+            icenuc(i,k) = icenuc(i,k) + mnuccd
+            dep(i,k) = mnuccd
+            cfrzr(i,k) = mnuccr
+
+
+            qiold = qi(i,k)
 !     set minimum ni to avoid division by zero
             ni(i,k)=max(ni(i,k),qsmall)
+            !print*,'ni2',ni(i,k)
 
             IF(qi(i,k).ge.qsmall)THEN
 
@@ -2060,7 +2160,7 @@ CONTAINS
 
                ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
                    exp(gammln(nu+betam))))**(1./betam)
-               cni=co/ao**(deltastr)*ani**deltastr
+               cni=ao**(1.-deltastr)*ani**deltastr
                ci(i,k)=nu*ni(i,k)*cni
                ai(i,k)=nu*ni(i,k)*ani
 
@@ -2074,27 +2174,106 @@ CONTAINS
                ani=ai(i,k)/(nu*ni(i,k))
                cni=ci(i,k)/(nu*ni(i,k))
 
-               CALL DSTR_CHECK(1,ni(i,k),ani,cni,deltastr,iaspect,sphrflag)
-               CALL RHO_CHECK(1,deltastr,qi(i,k),ni(i,k),ani,cni,sphrflag,redden,&
-                    betam,alphstr,alphv,rhobar)
-               ci(i,k)=nu*ni(i,k)*cni
-               ai(i,k)=nu*ni(i,k)*ani
+!     get deltastr from ci and ai
+
+               IF((log(ani)-log(ao)).gt. 0.01 .and.&
+                  (log(cni)-log(ao)).gt.0.001)THEN
+                  deltastr = (log(cni)-log(ao))/(log(ani)-log(ao))
+
+               ELSE
+                  deltastr = 1.
+               ENDIF
+
+               IF(ISDACflag .eq. 1 .or.masssizeflag .eq. 1 .or. &
+               sphrflag .eq. 1) deltastr = 1.0
+               IF(iaspect .eq. 1) deltastr = 0.8
+
+
+!     make sure deltastr is in reasonable limits
+!     if adjustment is needed, keep ai the same, adjust ci
+               
+!              IF(deltastr.lt.0.7)THEN
+!                  deltastr=0.7           
+!                  cni=ao**(1.-deltastr)*ani**deltastr
+!                  ci(i,k)=nu*ni(i,k)*cni
+
+!               ELSE IF(deltastr.gt.1.3)THEN
+                  
+!                  deltastr=1.3
+!                  cni=ao**(1.-deltastr)*ani**deltastr
+!                  ci(i,k)=nu*ni(i,k)*cni
+                  
+!               END IF
+
+              if(deltastr.lt.0.55) then
+                 voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
+                 (exp(gammln(NU+deltastr+2.)))/gammnu
+                 deltastr=0.55
+                 ani=((3.*voltmp*gammnu)/ &
+                      (4.*pi*ao**(1.-deltastr)*(exp(gammln(NU+deltastr+2.)))))** &
+                      (1./(2.+deltastr))
+                 ai(i,k)=max((NU*ni(i,k)*ani),1.e-20)
+                 ani=ai(i,k)/(NU*ni(i,k))
+              else if (deltastr.gt.1.5) then
+                 voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
+                       (exp(gammln(NU+deltastr+2.)))/gammnu
+                 deltastr=1.5
+                 ani=((3.*voltmp*gammnu)/ &
+                     (4.*pi*ao**(1.-deltastr)*(exp(gammln(NU+deltastr+2.)))))** &
+                     (1./(2.+deltastr))
+                 ai(i,k)=max((NU*ni(i,k)*ani),1.e-20)
+                 ani=ai(i,k)/(NU*ni(i,k))
+                 cni=ao**(1.-deltastr)*ani**deltastr
+                 ci(i,k)=max((NU*ni(i,k)*cni),1.e-20)
+                 cni=ci(i,k)/(nu*ni(i,k))
+              endif
+
+               betam=2.+deltastr
+               alphstr=ao**(1.-deltastr)
+               alphv=4./3.*pi*alphstr              
+               
+!     get avg ice density
+               rhobar = qi(i,k)*gammnu/(ni(i,k)*alphv* &
+               ani**betam*exp(gammln(nu+betam)))
+
+               IF(ISDACflag .eq. 1) rhobar = 88.4
+               IF(masssizeflag .eq. 1) rhobar = 920.
+               IF(sphrflag .eq. 1) rhobar = 920.
+               If(redden .eq. 1) rhoi = 500.
+!     check to make sure ice density in bounds
+!     if necessary adjust ani, then we also need to recalculate cni,
+!     assuming the same deltastr
+
+               IF(rhobar.gt.920.)THEN
+
+                  rhobar=920.
+                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
+                  exp(gammln(nu+betam))))**(1./betam)
+                  cni=ao**(1.-deltastr)*ani**deltastr
+                  ci(i,k)=nu*ni(i,k)*cni
+                  ai(i,k)=nu*ni(i,k)*ani
+
+               ELSE IF(rhobar.lt.50.)THEN
+
+                  rhobar=50.
+                  ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
+                  exp(gammln(nu+betam))))**(1./betam)
+                  cni=ao**(1.-deltastr)*ani**deltastr
+                  ci(i,k)=nu*ni(i,k)*cni
+                  ai(i,k)=nu*ni(i,k)*ani
+                  
+               END IF
+!     get rni
 
             END IF ! qi > qsmall
+        !print*,'here5'
 
-
-!     add tendencies to temp, water vapor
-!     if qi < qsmall, then zero out ni, ai, ci
             IF(qi(i,k).lt.qsmall)THEN
                qi(i,k)=0.
                ai(i,k)=0.
                ni(i,k)=0.
                ci(i,k)=0.
                rhobar=920.
-            ELSE
-               qv(i,k)=qv(i,k)-(prd+mnuccd)*dt
-               temp=temp+((prd+mnuccd)*xxls/cpm*dt)
-               icenuc(i,k) = mnuccd
             END IF
 
             IF(qs(i,k).lt.qsmall)THEN
@@ -2154,56 +2333,78 @@ CONTAINS
                rhobar=920.
             END IF
             IF(iaspect .eq. 1) phii = 0.27
+            IF(ISDACflag .eq. 1) rhobar=88.4 
+            IF(masssizeflag .eq. 1) rhobar=920.
             IF(sphrflag .eq. 1) rhobar =920.
             If(redden .eq. 1) rhoi = 500.
             !rhobar=500.
+
+!defining output variables as 2D
+            praiout(i,k) = prai
+            prcout(i,k) = prc
+            psacwsout(i,k) = psacws
+            qmultsout(i,k) = qmults
+            qmultrout(i,k) = qmultr
+            piacrout(i,k) = piacr
+            praciout(i,k) = praci
+            piacrsout(i,k) = piacrs
+            pracisout(i,k) = pracis
+            pracgout(i,k) = pracg
+            psacwgout(i,k) = psacwg
+            pgsacwout(i,k) = pgsacw
+            pgracsout(i,k) = pgracs
+            prdgout(i,k) = prdg
+            eprdgout(i,k) = eprdg
+            evpmgout(i,k) = evpmg
+            pgmltout(i,k) = pgmlt
+            qmultgout(i,k) = qmultg
+            qmultrgout(i,k) = qmultrg
+
 !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !     add tendencies to cloud, rain, and snow
 
             qv(i,k) = qv(i,k) + &
-                 (-pre-evpms-evpmg)*dt + &
-                 (-pcc-prds-eprds-prdg-eprdg)*dt
+                      (-pre-evpms-evpmg)*dt + &
+                      (-pcc-prds-eprds-prdg-eprdg)*dt
             temp = temp + &
-                 (pre*xxlv + (evpms+evpmg)*xxls + &
-                 (psmlt+pgmlt-pracs-pracg)*xxlf)/cpm*dt +&
-                 ((prds+eprds+prdg+eprdg)*xxls + pcc*xxlv + &
-                 (psacws+qmults+qmultg+qmultr+qmultrg+pracs1+&
-                 +psacwg+pracg1+pgsacw+pgracs+piacr+piacrs)*&
-                 xxlf)/cpm*dt
-            
+                   (pre*xxlv + (evpms+evpmg)*xxls + &
+                   (psmlt+pgmlt-pracs-pracg)*xxlf)/cpm*dt +&
+                   ((prds+eprds+prdg+eprdg)*xxls + pcc*xxlv + &
+                   (psacws+qmults+qmultg+qmultr+qmultrg+pracs1+&
+                   +psacwg+pracg1+pgsacw+pgracs+piacr+piacrs)*&
+                   xxlf)/cpm*dt
+
             qc(i,k) = qc(i,k) + &
-                 (-pra-prc)*dt +&
-                 (pcc-psacws-qmults-qmultg-psacwg-pgsacw)*dt
+                      (-pra-prc)*dt +&
+                      (pcc-psacws-qmults-qmultg-psacwg-pgsacw)*dt
             nc(i,k) = nc(i,k) + &
-                 (-npra-nprc)*dt + &
-                 (-npsacws-npsacwg)*dt
-            
+                      (-npra-nprc)*dt + &
+                      (-npsacws-npsacwg)*dt
+
             qr(i,k) = qr(i,k) + &
-                 (pre+prc+pra-psmlt-pgmlt+pracs+pracg)*dt + &
-                 (-pracs1-qmultr-qmultrg-piacr-piacrs-&
-                 pracg1-pgracs)*dt
+                      (pre+prc+pra-psmlt-pgmlt+pracs+pracg)*dt + &
+                      (-pracs1-qmultr-qmultrg-piacr-piacrs-&
+                      pracg1-pgracs)*dt
             nr(i,k) = nr(i,k) + &
-                 (nprc1+nragg-npracg+nsubr-nsmltr-ngmltr)*dt + &
-                 (-npracs1-niacr-niacrs-npracg1-ngracs+nsubr)*dt
-            
-            if(snowflag.eq.1)then
-               qs(i,k) = qs(i,k) + &
-                    (psmlt+evpms-pracs)*dt +&
-                    (psacws+prds+pracs1+eprds-psacr+piacrs+&
-                    pracis)*dt
-               ns(i,k) = ns(i,k) + &
-                    nsmlts*dt + &
-                    (nsagg-nscng-ngracs+niacrs+nsubs)*dt
-            end if
-            
+                      (nprc1+nragg-npracg+nsubr-nsmltr-ngmltr)*dt + &
+                      (-npracs1-niacr-niacrs-npracg1-ngracs+nsubr)*dt
+
+            qs(i,k) = qs(i,k) + &
+                      (psmlt+evpms-pracs)*dt +&
+                      (psacws+prds+pracs1+eprds-psacr+piacrs+&
+                      pracis)*dt
+            ns(i,k) = ns(i,k) + &
+                      nsmlts*dt + &
+                      (nsagg-nscng-ngracs+niacrs+nsubs)*dt
+
             qg(i,k) = qg(i,k) + &
-                 (pgmlt+evpmg-pracg)*dt + &
-                 (pracg1+psacwg+pgsacw+pgracs+prdg+&
-                 eprdg+piacr+psacr)*dt
+                      (pgmlt+evpmg-pracg)*dt + &
+                      (pracg1+psacwg+pgsacw+pgracs+prdg+&
+                      eprdg+piacr+psacr)*dt
             ng(i,k) = ng(i,k) + &
-                 (ngmltg)*dt + &
-                 (nscng+ngracs+niacr+nsubg)*dt
-            
+                      (ngmltg)*dt + &
+                      (nscng+ngracs+niacr+nsubg)*dt
+
             qitend = (qmults+qmultg+qmultr+qmultrg-praci-pracis)
             nitend = (nmults+nmultg+nmultr+nmultrg-niacr-niacrs)
             qi(i,k) = qi(i,k) + qitend*dt
@@ -2211,15 +2412,11 @@ CONTAINS
 
 
             rainevap(i,k) = -1.*pre
-
-            if(snowflag.eq.1)then
-               snowevap(i,k) = -1.*evpms
-               snowmelt(i,k) = -1.*psmlt
-               snowdep(i,k) = prds
-               snowsub(i,k) = eprds
-               snowaccr(i,k) = pracs
-            end if
-  
+            snowevap(i,k) = -1.*evpms
+            snowmelt(i,k) = -1.*psmlt
+            snowdep(i,k) = prds
+            snowsub(i,k) = eprds
+            snowaccr(i,k) = pracs
 !     add liquid, do saturation adjustment to get updated qc
 !     get updated thermodynamics (updated after ice microphysics)
             
@@ -2238,8 +2435,6 @@ CONTAINS
             qv(i,k)=qv(i,k)-pcc*dt
             qc(i,k)=qc(i,k)+pcc*dt
 
-
-            !print*,'here',i,k,pcc
             IF(pcc .gt. 0.0)THEN
                cloudcond(i,k) = pcc
             ELSE
@@ -2258,22 +2453,19 @@ CONTAINS
                   qr(i,k)=qr(i,k)+qi(i,k)
                   nr(i,k)=nr(i,k)+ni(i,k)
                   t(i,k)=t(i,k)-qi(i,k)*xxlf/cpm
-                  icemelt(i,k) = qi(i,k)/dt
                   qi(i,k)=0.
                   ni(i,k)=0.
                   ai(i,k)=0.
                   ci(i,k)=0.
+                  icemelt(i,k) = qi(i,k)/dt
                END IF
-               IF(snowflag.eq.2)then
-                  IF(qs(i,k).ge.qsmall)THEN
-                     qr(i,k)=qr(i,k)+qs(i,k)
-                     nr(i,k)=nr(i,k)+ns(i,k)
-                     t(i,k)=t(i,k)-qs(i,k)*xxlf/cpm
-                     snowmelt(i,k) = qs(i,k)/dt
-                     qs(i,k)=0.
-                     ns(i,k)=0.  
-                  END IF
-               END IF
+!               IF(qs(i,k).ge.qsmall)THEN
+!                  qr(i,k)=qr(i,k)+qs(i,k)
+!                  nr(i,k)=nr(i,k)+ns(i,k)
+!                  t(i,k)=t(i,k)-qs(i,k)*xxlf/cpm
+!                  qs(i,k)=0.
+!                  ns(i,k)=0.
+!               END IF
             END IF
 !     homogeneous freezing, freeze andd cloud and rain water within one time-step below -40
             IF(homofreeze .eq. 1.and.t(i,k).le.233.15.and.&
@@ -2388,20 +2580,18 @@ CONTAINS
             fc(k) = min(fc(k),9.1*(rhosu/rho(i,k))**0.54)
             fnc(k) = min(fnc(k),9.1*(rhosu/rho(i,k))**0.54)
 
-            !     calculate snow/aggregate sedimentation
-            IF(snowflag.eq.1)THEN
-               IF(qs(i,k).ge.qsmall)THEN
-                  dum = (cons1*ns(i,k)/qs(i,k))**(1./DS)
-                  fs(k) = asn(k)*cons3/dum**BS
-                  fns(k) = asn(k)*cons5/dum**BS
-               ELSE
-                  fs(k) = 0.
-                  fns(k) = 0.
-               END IF
-               fs(k) = min(fs(k),1.2*(rhosu/rho(i,k))**0.54)
-               fns(k) = min(fns(k),1.2*(rhosu/rho(i,k))**0.54)
-            END IF!snowflag
-            
+!     calculate snow/aggregate sedimentation
+            IF(qs(i,k).ge.qsmall)THEN
+               dum = (cons1*ns(i,k)/qs(i,k))**(1./DS)
+               fs(k) = asn(k)*cons3/dum**BS
+               fns(k) = asn(k)*cons5/dum**BS
+            ELSE
+               fs(k) = 0.
+               fns(k) = 0.
+            END IF
+            fs(k) = min(fs(k),1.2*(rhosu/rho(i,k))**0.54)
+            fns(k) = min(fns(k),1.2*(rhosu/rho(i,k))**0.54)
+
             IF (qg(i,k).ge.qsmall) THEN
                dum = (cons2*ng(i,k)/qg(i,k))**(1./DG)
                dum=MAX(dum,LAMMING)
@@ -2490,6 +2680,8 @@ CONTAINS
             
             qisten(k) = qisten(k) - falltndi/nstep/rho(i,k) !s^-1
             nisten(k) = nisten(k) - falltndni/nstep/rho(i,k) !#kg^-1 s^-1
+            if(qisten(k).gt.0.0)print*,'qisten',qisten(k),falltndi
+            if(nisten(k).gt.0.0)print*,'nisten',nisten(k),falltndni
             aisten(k) = aisten(k) - falltndai/nstep/rho(i,k) !m^3 kg^-1 s^-1
             cisten(k) = cisten(k) - falltndci/nstep/rho(i,k) !m^3 kg^-1 s^-1
             qrsten(k) = qrsten(k) - falltndr/nstep/rho(i,k) !s^-1
@@ -2562,30 +2754,31 @@ CONTAINS
                qrloss(k)=qrloss(k)+falloutr(k)+falloutc(k)
 
 
-               ised(k) = ised(k) + fallouti(k)/nstep
-               ssed(k) = ssed(k) + fallouts(k)/nstep
-               gsed(k) = gsed(k) + falloutg(k)/nstep
-               rsed(k) = rsed(k) + falloutr(k)/nstep
+               ised(i,k) = ised(i,k) + fallouti(k)/nstep
+               ssed(i,k) = ssed(i,k) + fallouts(k)/nstep
+               gsed(i,k) = gsed(i,k) + falloutg(k)/nstep
+               rsed(i,k) = rsed(i,k) + falloutr(k)/nstep
             END DO
 !     get precipitation and snowfall accumulation during time step
 !     NOTE: factor of 1000 converts m to mm, but division by density cancels this
             
-            precprt = precprt + (fallouti(kts)+falloutr(kts)+&
+            precprt(i) = precprt(i) + (fallouti(kts)+falloutr(kts)+&
             falloutc(kts)+fallouts(kts)+falloutg(kts))*dt/nstep !kgm^-2
 !            print*,'precip accumulation',precprt
-            snowrt = snowrt + (fallouti(kts)+fallouts(kts)+falloutg(kts))*dt/nstep
-            snowprt = snowprt + (fallouti(kts)+fallouts(kts))*dt/nstep
-            grplprt = grplprt + (falloutg(kts))*dt/nstep
+            snowrt(i) = snowrt(i) + (fallouti(kts)+fallouts(kts)+falloutg(kts))*dt/nstep
+            snowprt(i) = snowprt(i) + (fallouti(kts)+fallouts(kts))*dt/nstep
+            grplprt(i) = grplprt(i) + (falloutg(kts))*dt/nstep
 
          END DO                 !end nstep loop
          END IF  !SEDON       
-
+          !      print*,'here7'
 !     add on sedimenation tendencies for mixing ratio to rest of tendencies
          DO k=kts,kte
 !     add new tendencies to mixing ratios
 
             qi(i,k) = qi(i,k) + qisten(k)*dt !kg kg^-1
             ni(i,k) = ni(i,k) + nisten(k)*dt !#kg^-1
+            if(ni(i,k).gt.0.0)print*,'ni3',ni(i,k),nisten(k)
             ai(i,k) = ai(i,k) + aisten(k)*dt !m kg^-1
             ci(i,k) = ci(i,k) + cisten(k)*dt !m kg^-1
             qr(i,k) = qr(i,k) + qrsten(k)*dt !kg kg^-1
@@ -2635,7 +2828,7 @@ CONTAINS
                END IF
             END IF
 
-            IF(qi(i,k) .lt. qsmall)THEN
+            IF(qi(i,k) .lt. qsmall .or. ni(i,k) .lt. qsmall)THEN
                qi(i,k) = 0.
                ni(i,k) = 0.
                ai(i,k) = 0.
@@ -2643,21 +2836,21 @@ CONTAINS
                qiloss(k) = 0.
             END IF
            
-            IF(qr(i,k) .lt. qsmall)THEN
+            IF(qr(i,k) .lt. qsmall .or. nr(i,k) .lt. qsmall)THEN
                qr(i,k) = 0.
                nr(i,k) = 0.
                qrloss(k) = 0.
             END IF
-            IF(qc(i,k) .lt. qsmall)THEN
+            IF(qc(i,k) .lt. qsmall .or. nc(i,k) .lt. qsmall)THEN
                qc(i,k) = 0.
                nc(i,k) = 0.
                qcloss(k) = 0.
             END IF
-            IF(qs(i,k).lt.qsmall)THEN
+            IF(qs(i,k).lt.qsmall .or. ns(i,k) .lt. qsmall)THEN
                qs(i,k) = 0.0
                ns(i,k) = 0.0
             END IF
-            IF(qg(i,k).lt.qsmall)THEN
+            IF(qg(i,k).lt.qsmall .or. ng(i,k) .lt. qsmall)THEN
                qg(i,k) = 0.0
                ng(i,k) = 0.0
             END IF
@@ -2706,22 +2899,20 @@ CONTAINS
                   log(gamma(pgam+1.))-log(gamma(pgam+4.)))/cons26
                END IF
             END IF
-            
-            IF(snowflag.eq.1)THEN
-               IF(qs(i,k).ge.qsmall)THEN
-                  lams = (cons1*ns(i,k)/qs(i,k))**(1./DS)
-                  
-                  IF(lams.lt.lammins)THEN
-                     lams = lammins
-                     n0s = lams**4*qs(i,k)/cons1
-                     ns(i,k) = n0s/lams
-                  ELSE IF(lams.gt.lammaxs)THEN
-                     lams = lammaxs
-                     n0s = lams**4*qs(i,k)/cons1
-                     ns(i,k) = n0s/lams
-                  END IF
+
+            IF(qs(i,k).ge.qsmall)THEN
+               lams = (cons1*ns(i,k)/qs(i,k))**(1./DS)
+
+               IF(lams.lt.lammins)THEN
+                  lams = lammins
+                  n0s = lams**4*qs(i,k)/cons1
+                  ns(i,k) = n0s/lams
+               ELSE IF(lams.gt.lammaxs)THEN
+                  lams = lammaxs
+                  n0s = lams**4*qs(i,k)/cons1
+                  ns(i,k) = n0s/lams
                END IF
-            END IF!snowflag
+            END IF
 
             if(qg(i,k).ge.qsmall)then
                 lamg = (cons2*ng(i,k)/qg(i,k))**(1./DG)
@@ -2735,16 +2926,16 @@ CONTAINS
                    n0g = lamg**4*qg(i,k)/cons2
                    ng(i,k) = n0g/lamg
                 end if
-             end if
+            end if
 
-             ni(i,k) = max(0.,ni(i,k))
-             ns(i,k) = max(0.,ns(i,k))
-             ng(i,k) = max(0.,ng(i,k))
-             nc(i,k) = max(0.,nc(i,k))
-             nr(i,k) = max(0.,nr(i,k))
+            ni(i,k) = max(0.,ni(i,k))
+            ns(i,k) = max(0.,ns(i,k))
+            ng(i,k) = max(0.,ng(i,k))
+            nc(i,k) = max(0.,nc(i,k))
+            nr(i,k) = max(0.,nr(i,k))
 
          END DO
-
+        !print*,'here8'
  400     CONTINUE
       END DO     
                !end i loop
@@ -2854,16 +3045,16 @@ CONTAINS
       END SUBROUTINE APM
 
 !---------------------------------------------------------------------
-      SUBROUTINE SIMPLENUC(temp,sui,rhodum,nidum,dt,mnuccd,&
+      SUBROUTINE SIMPLENUC(temp,sui,ISDACflag,rhodum,nidum,dt,mnuccd,&
         nnuccd,nuc1,rdry,nin)
 !---------------------------------------------------------------------
 
       IMPLICIT NONE
 
-      INTEGER, INTENT(IN) :: nin
       REAL, INTENT(IN) :: temp, dt, nuc1, rhodum, nidum, rdry(nin)
       REAL, INTENT(OUT) :: mnuccd, nnuccd
       REAL :: dum, mi, wght, rdry1(nin), denom
+      INTEGER, INTENT(IN) :: ISDACflag, nin
       INTEGER :: k
       REAL*8 :: sui
             
@@ -2888,8 +3079,17 @@ CONTAINS
            mi = mi0
         END IF
 
-        IF(nidum .lt. dum) THEN !dum used to be nuc1
-           nnuccd=(dum-nidum)/dt
+        IF(ISDACflag .eq. 0)THEN                  
+!           dum = nuc*1000./rhodum !1/L*1000/rho ~ 1000/kg
+           !IF(nidum.lt.dum)THEN
+           IF(nidum .lt. dum) THEN !dum used to be nuc1
+              nnuccd=(dum-nidum)/dt
+           END IF
+
+         ELSE IF(ISDACflag .eq. 1) THEN
+!           dum = nuc*1000./rhodum !1/L*1000/rho ~ 1000/kg
+           mi = 4./3.*pi*88.4*(5.e-6)**3
+           nnuccd = max(0.0,(dum-nidum)/dt)
         END IF
 
         mnuccd = nnuccd*mi
@@ -2945,6 +3145,8 @@ CONTAINS
       END IF
 
       END SUBROUTINE MEYERS
+
+
 !---------------------------------------------------------------------
       SUBROUTINE DEMOTT(temp,sui,nnuccd,mnuccd,rhodum,nuc1,dt,&
         rdry,nin, demottflag,nnucci,mnucci)
@@ -3006,222 +3208,16 @@ CONTAINS
 
       END IF
 
-    END SUBROUTINE DEMOTT
-
-
-    SUBROUTINE COLL_LOOKUP(ni,an,cn,rho,agg,nagg)
-
-      IMPLICIT NONE
-      INTEGER :: i, j, k, l, m, n, flag
-      REAL :: wght_ni, wght_an, wght_cn, wght_nu, wght_rho, x
-      REAL, INTENT(IN) :: ni, an, cn, rho
-      REAL, INTENT(OUT) :: agg, nagg
-
-     
-      CALL ITERATE_LOOKUP(coll_ni,  ni,  wght_ni, i)
-      CALL ITERATE_LOOKUP(coll_an,  ani, wght_an, j)
-      CALL ITERATE_LOOKUP(coll_cn,  cni, wght_cn, k)
-      CALL ITERATE_LOOKUP(coll_nu,  nu,  wght_nu, l)
-      CALL ITERATE_LOOKUP(coll_rho, rho, wght_rho,m)
-
-
-      CALL WGHTED_LOOKUP(i,j,k,l,m,wght_ni,wght_an,wght_cn,wght_nu,wght_rho,coll,agg)
-      CALL WGHTED_LOOKUP(i,j,k,l,m,wght_ni,wght_an,wght_cn,wght_nu,wght_rho,ncoll,nagg)
-      
-
-      
-
-    END SUBROUTINE COLL_LOOKUP
-
-    SUBROUTINE ITERATE_LOOKUP(x,y,wght,i)
-      
-      IMPLICIT NONE
-      INTEGER :: i, n, flag
-      REAL, INTENT(IN) :: x
-      REAL, INTENT(OUT) :: wght
-      
-      flag = 0
-      i = size(x)
-      DO n = 1, size(x)
-         if((x(n)-y) .ge. 0.0 .and. flag .eq. 0)then
-            i = n
-            flag = 1
-         end if
-      END DO
-      
-      if(i .gt. 1)then 
-         wght = (x(i)-y)/(x(i)-x(i-1))
-      else if(i.eq.1)then
-         wght = (x(i)-y)/(x(i)-0.0)
-      else if(i.eq.size(x).and.iflag.eq.0)
-         wght = 0.0
-      end if
-      
-    END SUBROUTINE ITERATE_LOOKUP
-
-    SUBROUTINE WGHTED_LOOKUP(i,j,k,l,m,wghti,wghtj,wghtk,wghtl,wghtm,x,y)
-      IMPLICIT NONE
-      INTEGER, INTENT(IN) :: i,j,k,l,m
-      REAL, INTENT(IN) :: wghti,wghtj,wghtk,wghtl,x
-      REAL, INTENT(OUT) :: y
-      REAL tmpi1,tmpi2,tmpj1,tmpj2,tmpl1,tmpl2,tmpm
-
-
-      CALL CHECK_MIN(i,j,k,l,m,A,B)
-
-      !i1 = wght i at j1,k1,l1,m1
-      !i2 = wght i at j2,k1,l1,m1
-      tmpi1 = x[i-1,j-1,k-1,l-1,m-1]*wghti + x[i,j-1,k-1,l-1,m-1]*(1.-wghti) !i wght
-      tmpi2 = x[i-1,j,k-1,l-1,m-1]*wghti + x[i,j,k-1,l-1,m-1]*(1.-wghti)     !i wght
-         
-      !j1 = i-wghted j at k1,l1,m1
-      tmpj1 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
-
-      !----------------------------------------------------------------------------------------
-
-      !i1 = wght i at j1,k2,l1,m1
-      !i2 = wght i at j2,k2,l1,m1
-      tmpi1 = x[i-1,j-1,k,l-1,m-1]*wghti + x[i,j-1,k,l-1,m-1]*(1.-wghti)!i wght
-      tmpi2 = x[i-1,j,k,l-1,m-1]*wghti + x[i,j,k,l-1,m-1]*(1.-wghti)    !i wght
-
-      !j2 = i-wghted j at k2,l1,m1
-      tmpj2 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
-
-      !----------------------------------------------------------------------------------------
-
-      !k1 = (i,j)-wghted k at l1,m1
-      tmpk1 = tmpj1*wghtk + tmpj2*(1.-wghtk)                                  !k wght
-
-      !========================================================================================      
-
-      !i1 = wght i at j1,k1,l2,m1
-      !i2 = wght i at j2,k1,l2,m1
-      tmpi1 = x[i-1,j-1,k-1,l,m-1]*wghti + x[i,j-1,k-1,l,m-1]*(1.-wghti)     !i wght
-      tmpi2 = x[i-1,j,k-1,l,m-1]*wghti + x[i,j,k-1,l,m-1]*(1.-wghti)         !i wght
-
-      !j1 = i-wghted j at k1,l2,m1
-      tmpj1 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                 !j wght
-
-      !----------------------------------------------------------------------------------------
-
-      !i1 = wght i at j1,k2,l2,m1
-      !i2 = wght i at j2,k2,l2,m1
-      tmpi1 = x[i-1,j-1,k,l,m-1]*wghti + x[i,j-1,k,l,m-1]*(1.-wghti)          !i wght
-      tmpi2 = x[i-1,j,k,l,m-1]*wghti + x[i,j,k,l,m-1]*(1.-wghti)              !i wght
-
-      !j2 = i-wghted j at k2,l2,m1
-      tmpj2 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
-
-      !----------------------------------------------------------------------------------------
-
-      !k2 = (i,j)-wghted k at l2,m1
-      tmpk2 = tmpj1*wghtk + tmpj2*(1.-wghtk)                                  !k wght
-
-      !++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-      !l1 = (i,j,k)-wghted l at m1
-      tmpl1 = tmpk1*wghtl + tmpk2*(1.-wghtl)                                  !l wght
-
-      !||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
-
-      !i1 = wght i at j1,k1,l1,m2
-      !i2 = wght i at j2,k1,l1,m2
-      tmpi1 = x[i-1,j-1,k-1,l-1,m]*wghti + x[i,j-1,k-1,l-1,m]*(1.-wghti)      !i wght
-      tmpi2 = x[i-1,j,k-1,l-1,m]*wghti + x[i,j,k-1,l-1,m]*(1.-wghti)          !i wght
-
-      !j1 = i-wghted j at k1,l1,m2
-      tmpj1 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
-
-      !----------------------------------------------------------------------------------------
-
-      !i1 = wght i at j1,k2,l1,m2
-      !i2 = wght i at j2,k2,l1,m2
-      tmpi1 = x[i-1,j-1,k,l-1,m]*wghti + x[i,j-1,k,l-1,m]*(1.-wghti)          !i wght
-      tmpi2 = x[i-1,j,k,l-1,m]*wghti + x[i,j,k,l-1,m]*(1.-wghti)              !i wght
-
-      !j2 = i-wghted j at k2,l1,m2
-      tmpj2 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
-
-      !----------------------------------------------------------------------------------------
-
-      !k1 = (i,j)-wghted k at l1,m2
-      tmpk1 = tmpj1*wghtk + tmpj2*(1.-wghtk)                                  !k wght
-
-      !========================================================================================      
-
-      !i1 = wght i at j1,k1,l2,m2
-      !i2 = wght i at j2,k1,l2,m2
-      tmpi1 = x[i-1,j-1,k-1,l,m]*wghti + x[i,j-1,k-1,l,m]*(1.-wghti)          !i wght
-      tmpi2 = x[i-1,j,k-1,l,m]*wghti + x[i,j,k-1,l,m]*(1.-wghti)              !i wght
-
-      !j1 = i-wghted j at k1,l2,m2
-      tmpj1 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
-
-      !----------------------------------------------------------------------------------------
-
-      !i1 = wght i at j1,k2,l2,m2
-      !i2 = wght i at j2,k2,l2,m2
-      tmpi1 = x[i-1,j-1,k,l,m]*wghti + x[i,j-1,k,l,m]*(1.-wghti)              !i wght
-      tmpi2 = x[i-1,j,k,l,m]*wghti + x[i,j,k,l,m]*(1.-wghti)                  !i wght
-
-      !j2 = i-wghted j at k2,l2,m2
-      tmpj2 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
-
-      !----------------------------------------------------------------------------------------
-
-      !k2 = (i,j)-wghted k at l2,m2
-      tmpk2 = tmpj1*wghtk + tmpj2*(1.-wghtk)                                  !k wght
-
-      !++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-      !l2 = (i,j,k)-wghted l at m2
-      tmpl2 = tmpk1*wghtl + tmpk2*(1.-wghtl)                                  !l wght
-
-      !m = (i,j,k,l)-wghted m
-      tmpm = tmpl1*wghtm + tmpl2*(1.-wghtm)                                   !m wght
-
-      y = tmpm
-
-    END SUBROUTINE WGHTED_LOOKUP
-
-    SUBROUTINE CHECK_MIN(i,j,k,l,m,A,B,x)
-      IMPLICIT NONE
-      INTEGER,INTENT(IN)::i,j,k,l,m
-      REAL,INTENT(IN)::x
-      REAL,INTENT(OUT)::A,B
-      LOGICAL :: q(5)
-
-      q(:) = .false.
-      if(i.le.1)q(1) = .true.
-      if(j.le.1)q(2) = .true.
-      if(k.le.1)q(3) = .true.
-      if(l.le.1)q(4) = .true.
-      if(m.le.1)q(5) = .true.
-
-      
-      do z=1,5
-         do y=1,5
-            do w=1,5
-               do v=1,5
-                  do u=1,5
-                  end do
-               end do
-            end do
-         end do
-      end do
-      
-
-      
-    END SUBROUTINE CHECK_MIN
+      END SUBROUTINE DEMOTT
 
 !_____________________________________________________________________
-    REAL FUNCTION GAMMLN(XX)
-      !---------------------------------------------------------------------
+      REAL FUNCTION GAMMLN(XX)
+!---------------------------------------------------------------------
       INTEGER J
       REAL*8 COF(6),STP,HALF,ONE,FPF,X,TMP,SER
       REAL XX
       DATA COF,STP/76.18009173D0,-86.50532033D0,24.01409822D0,&
-           -1.231739516D0,.120858003D-2,-.536382D-5,2.50662827465D0/
+          -1.231739516D0,.120858003D-2,-.536382D-5,2.50662827465D0/
       DATA HALF,ONE,FPF/0.5D0,1.0D0,5.5D0/
       X=XX-ONE
       TMP=X+FPF
@@ -3233,10 +3229,10 @@ CONTAINS
       ENDDO
       GAMMLN=TMP+LOG(STP*SER)
       RETURN
-    END FUNCTION GAMMLN
-    
-    !___________________________________________________________________
-    REAL FUNCTION POLYSVP1 (T,type)
+      END FUNCTION GAMMLN
+
+!___________________________________________________________________
+      REAL FUNCTION POLYSVP1 (T,type)
 !--------------------------------------------------------------------
 
 !  Compute saturation vapor pressure by using 
@@ -3518,17 +3514,17 @@ CONTAINS
 !
 !------------------------------------------------------------------------
 
-      SUBROUTINE EVOLVE(iflag,ani,ni,sui,sup,qvv,temp,press,igr,deltt,iwc,cf,&
+      SUBROUTINE EVOLVE(ani,ni,sui,sup,qvv,temp,press,igr,deltt,iwc,cf,&
           iwci,phii,phif,cni,rni,rnf,anf,deltastr,mu,rhoavg,vtbarb,&
-          vtbarbm,alphstr,vtbarblen,rhoa,i,k,iaspect,&
-          ipart,sphrflag,redden,itimestep)
+          vtbarbm,alphstr,vtbarblen,rhoa,i,k,iaspect,ISDACflag,&
+          masssizeflag,ipart,sphrflag,redden,itimestep)
 !***********************************************************************
 
       IMPLICIT NONE
 
-      INTEGER ipart,ivent,i,k,iaspect,redden,iflag
+      INTEGER ipart,ivent,i,k,iaspect,ISDACflag,redden,masssizeflag
       INTEGER sphrflag,itimestep,MICRO_ON
-      REAL ani,ni,temp,press,qvv, nn
+      REAL ani,ni,temp,press,qvv
       REAL igr,gi,capgam,dmdt,deltt,qe
       REAL dlndt,mu
       REAL l,lmean,fs,gammnu1,gammnubet,anf,betam
@@ -3550,6 +3546,7 @@ CONTAINS
       cv = 12.*2.**bv
       bm1 = 3.0
       ivent=1
+      IF(ISDACflag .EQ. 1) ivent=0
       grav = 9.81
       celsius = temp-273.15
       fv = 1.0
@@ -3560,22 +3557,22 @@ CONTAINS
       kts = 2.3823e-2 +7.1177e-5*(temp-273.15) ! thermal conductivity
 !      if(MICRO_ON.eq.1)THEN
       l=ani
-
+!      IF(masssizeflag.EQ.1)THEN
+!         IF(cni.GT.ani)l=cni         
+!      END IF
 !      IF(MICRO_ON.eq.1)THEN
       drho = ((polysvp1(temp,0)-polysvp1(temp,1))/(Rv*temp))*1000.0
 !      IF(MICRO_ON.eq.1)THEN
 !      IGR_DEN = IGR
 
-      if(iflag.eq.1) nn = nu
-      if(iflag.eq.2) nn = nus
-      
       betam = 2. + deltastr
-      gammnu=exp(gammln(nn))
-      gammnu1=exp(gammln(nn+1.0))
-      gammnubet=exp(gammln(nn+betam))
+      gammnu=exp(gammln(nu))
+      gammnu1=exp(gammln(nu+1.0))
+      gammnubet=exp(gammln(nu+betam))
 
-      capgam = capacitance_gamma(l,deltastr,nn,alphstr)
-      lmean = l*nn
+      capgam = capacitance_gamma(l,deltastr,nu,alphstr)
+      IF(ISDACflag .EQ. 1) capgam=capgam*2./pi
+      lmean = l*nu
 
       cap = 0.
       alpham = 0.
@@ -3589,10 +3586,57 @@ CONTAINS
       alpha_v = 0.
       beta_v = 0.
 
-      gammnubet = exp(gammln(nn+betam))
-      gammnu2delt = exp(gammln(nn+2.+deltastr))
-      gammnu1delt = exp(gammln(nn+deltastr-1.))
-      gamrats = exp(gammln(nn+betam/3.))/gammnu
+!      IF(masssizeflag .EQ. 1)THEN
+
+!         IF(ipart .eq. 0)THEN
+!            capgam = 2.*.1803*l*gammnu1/gammnu ! cap for a needle in RAMS
+            
+!         ELSE IF(ipart .ge. 1)THEN
+!            capgam = 2.*0.179*l*gammnu1/gammnu !cap for a column in RAMS
+!         END IF
+         
+!         IF(celsius .lt. -10.0 .and. celsius .gt. -20.0)THEN
+            
+!            IF(ipart .eq. 0 .or. ipart .eq. 3)THEN
+!               capgam = 2.*.3183*l*gammnu1/gammnu !cap for a dendrite
+               
+!            ELSE IF(ipart.eq.1.or.ipart.eq.2)THEN
+!               capgam = 2.*0.429*l*gammnu1/gammnu ! cap for a plate in RAMS
+!            END IF
+!            
+!         END IF  
+
+!         cap=capgam/(l*gammnu1/gammnu)
+
+!         CALL getmasssize(celsius,l,alpham,&
+!         betam,alpha_a,beta_a,alpha_v,beta_v,cap,ipart)
+
+!         alphams=alpham*2.**betam
+!         alpha_as=alpha_a*2.**beta_a
+!         IF(alphap.eq.0.0)THEN
+!            alphap=alphams
+!            alphamsp=alphams
+!            betamp=betam
+!         END IF
+!     deltastr=betam-2.
+!     alphstr=ao**(1.-deltastr)
+!         capgam=cap   
+!         gammnubet=exp(gammln(nu+betam))
+!         iwci=ni*alphams*l**betam*gammnubet/gammnu
+         
+!      END IF
+
+!      dmdt = 4.*pi*gi*sui*ni*capgam
+
+        !     get alpham and betam from deltastr
+!      dlndt = dmdt/(ni*lenconv(ani,deltastr,nu,alpham,&
+!      betam,alphstr,rhoavg))
+
+
+      gammnubet = exp(gammln(nu+betam))
+      gammnu2delt = exp(gammln(nu+2.+deltastr))
+      gammnu1delt = exp(gammln(nu+deltastr-1.))
+      gamrats = exp(gammln(nu+betam/3.))/gammnu
       
       phii = cni/ani*gammnu1delt/gammnu ! diagnose initial aspect ratio
       IF(iaspect .eq. 1) phii = 0.27
@@ -3636,7 +3680,11 @@ CONTAINS
       
       bx = deltastr+2.+2.*bl-ba
       
-      wghtv1 = exp(gammln(nn+deltastr+2.+2.*bl-ba))/gammnu
+!      IF(masssizeflag.eq.1)THEN
+!         xn = (8.*alphams*grav*rhoa)/(alpha_as*etaa**2)
+!         bx = betam + 2.0 - beta_a
+!      END IF
+      wghtv1 = exp(gammln(nu+deltastr+2.+2.*bl-ba))/gammnu
       xm = xn*ani**bx * wghtv1  ! average Best number
       
       if(xm.le.10.)then
@@ -3660,31 +3708,47 @@ CONTAINS
       
       Nre = am*xm**bm
       
-      wghtv2 = exp(gammln(nn+bx*bm-1.))/gammnu
+      wghtv2 = exp(gammln(nu+bx*bm-1.))/gammnu
       vtbarb = etaa/rhoa*0.5 * am*(xn)**bm*ani**(bx*bm-1.) * wghtv2
-      wghtv3 = exp(gammln(nn+bx*bm-1.+2.+deltastr))&
-      /exp(gammln(nn+2.+deltastr))
+      wghtv3 = exp(gammln(nu+bx*bm-1.+2.+deltastr))&
+      /exp(gammln(nu+2.+deltastr))
       vtbarbm = etaa/rhoa*0.5 * am*(xn)**bm*ani**(bx*bm-1.) * wghtv3
 
  
 ! add length
       if(phii.lt.1.0)then
-         wghtv3 = exp(gammln(nn+bx*bm-1.+1)) &
-         /exp(gammln(nn+1.))
+         wghtv3 = exp(gammln(nu+bx*bm-1.+1)) &
+         /exp(gammln(nu+1.))
          vtbarblen = etaa/rhoa*0.5 * am*(xn)**bm*ani**(bx*bm-1.) &
          * wghtv3
       else if(phii.gt.1.0)then
-         wghtv3 = exp(gammln(nn+bx*bm-1.+deltastr))&
-         /exp(gammln(nn+deltastr))
+         wghtv3 = exp(gammln(nu+bx*bm-1.+deltastr))&
+         /exp(gammln(nu+deltastr))
          vtbarblen = etaa/rhoa*0.5 * am*(xn)**bm*ani**(bx*bm-1.) &
          * wghtv3
       else if (phii.eq.1.0)then
-         wghtv3 = exp(gammln(nn+bx*bm-1.+1))&
-         /exp(gammln(nn+1.))
+         wghtv3 = exp(gammln(nu+bx*bm-1.+1))&
+         /exp(gammln(nu+1.))
          vtbarblen = etaa/rhoa*0.5 * am*(xn)**bm*ani**(bx*bm-1.) &
          * wghtv3
       endif
       
+      IF(ISDACflag .eq. 1)THEN
+         vtbarb = cv*ani**bv*exp(gammln(nu+bv))/gammnu
+         vtbarbm = cv*ani**bv*exp(gammln(nu+bv+1.))/exp(gammln(nu+1.))
+         vtbarblen = cv*ani**bv*exp(gammln(nu+bv+bm1))/&
+         exp(gammln(nu+bm1))
+      END IF
+      
+!      IF(masssizeflag .EQ. 1)THEN
+!         vtbarb = alpha_v*2.**beta_v*l**beta_v*&
+!         exp(gammln(nu+beta_v))/gammnu
+!         vtbarbm = alpha_v*2.**beta_v*l**beta_v*&
+!         exp(gammln(nu+beta_v+betam))/exp(gammln(nu+betam))
+!         vtbarblen = alpha_v*2.**beta_v*l**beta_v*&
+!         exp(gammln(nu+beta_v+1.))/exp(gammln(nu+1.))
+!      END IF
+
          
       xvent = nsch**(1./3.)*SQRT(nre)
       ntherm = SQRT(nre)*npr**(1./3.)
@@ -3715,11 +3779,11 @@ CONTAINS
 !         fva = bv1 + bv2*xvent**gv*(ani/rni)**(gv/2.)
 !         fva = bv1 + bv2*xvent**gv*(alphstr**(-1./3.)*
 !     +        ln**(1.-(deltastr+2.)/3.) * 
-!     +        exp(gammln(nn + 1. -(deltastr+2.)/3.))/gammnu)**(gv/2.)
+!     +        exp(gammln(nu + 1. -(deltastr+2.)/3.))/gammnu)**(gv/2.)
 !         fvc = bv1 + bv2*xvent**gv*(cni/rni)**(gv/2.)
 !         fvc = bv1 + bv2*xvent**gv*(alphstr**(2./3.)*
 !     +        ln**(deltastr-(deltastr+2.)/3.) * 
-!     +        exp(gammln(nn + deltastr -(deltastr+2.)/3.))/gammnu)
+!     +        exp(gammln(nu + deltastr -(deltastr+2.)/3.))/gammnu)
 !     +        **(gv/2.)
          fh = bt1 + bt2*ntherm**gt
 
@@ -3738,7 +3802,7 @@ CONTAINS
 !      rhodep = 920.                 
                                              ! during growth
       vt = mu/rhoa*0.5*Nre/ani
-      fallcheck = sqrt(dvs*pi*2*cni/(vt*nn))
+      fallcheck = sqrt(dvs*pi*2*cni/(vt*nu))
       rhosub = rhoi*((1.-sui/qvv)+igr*(sui/qvv))
       IF(igr .lt. 1.0)THEN
          IF(sup .ge. 0.0)THEN
@@ -3766,8 +3830,8 @@ CONTAINS
       if(sui.lt.0.0)then        ! OR get density of ice removed 
          rhodep = rhoavg        ! during sublimation using polynomial
          videp = 4./3.*pi*rni**3 & 
-         *exp(gammln(nn+deltastr+2.))/gammnu
-         Vmin = 4./3.*pi*ao**2*co
+         *exp(gammln(nu+deltastr+2.))/gammnu
+         Vmin = 4./3.*pi*ao**3
          if(Vmin.lt.videp)then
             betavol = alog(rhoi/rhoavg)*1./(alog(Vmin/videp))
             rhodep = rhoavg*(1.+betavol)
@@ -3777,29 +3841,34 @@ CONTAINS
       endif
 
 
+      IF(ISDACflag.eq.1) rhodep = 88.4
+!      IF(masssizeflag .eq. 1.or.sphrflag.eq.1) rhodep=920.
       If(redden .eq. 1) rhodep = 500.
       !rhodep=500.
 !     rf = ((rni*gamrats)**2 + 2.*gi*sui*fs/rhodep &
 !           *gammnu/gammnubet*gamrats**3*deltt)**(0.5) ! rmean after deltat
 
-      rf = (max(((rni*gamrats)**2 + 2.*gi*real(sui)*fs/rhodep &
+      rf = (max(((rni*gamrats)**2 + 2.*gi*sui*fs/rhodep &
            *gammnu/gammnubet*gamrats**3*deltt),1.e-20))**(0.5) ! rmean after deltat
       rnf = rf/gamrats           ! convert to rn (characteristic r)
       anf = alphanr*rnf**(3./(2.+igr)) ! characteristic a-axis after deltat
-      vi = 4./3.*pi*rni**3 * exp(gammln(nn+deltastr+2.))/gammnu ! mean initial volume
-      vf = 4./3.*pi*rnf**3 * exp(gammln(nn+deltastr+2.))/gammnu ! mean volume after deltat
+      vi = 4./3.*pi*rni**3 * exp(gammln(nu+deltastr+2.))/gammnu ! mean initial volume
+      vf = 4./3.*pi*rnf**3 * exp(gammln(nu+deltastr+2.))/gammnu ! mean volume after deltat
       rhoavg = rhoavg*(vi/vf) + rhodep*(1.-vi/vf) ! new average ice density
       rhoavg = max(min(rhoavg,920.),50.)
 
-!     
+      IF(ISDACflag .eq.1) rhoavg = 88.4
+!      IF(masssizeflag.eq.1.or.sphrflag.eq.1)rhoavg=920.
       !rhoavg=500.
       iwc = ni*rhoavg*vf        ! IWC after deltat
-!     
-      if(igr.ne.1.0.and.(log(anf)-log(co)).gt.0.01 .and.&
+!      IF(masssizeflag.eq.1) iwc=ni*alpham*rnf**betam*&
+!      (gammnu/exp(gammln(nu+deltastr+2.)))**(3./betam)
+
+      if(igr.ne.1.0.and.(log(anf)-log(ao)).gt.0.01 .and.&
       (3.*log(rnf)-2.*log(anf)-log(ao)).gt.0.001)THEN
-         deltastr = (3.*log(rnf)-2.*log(anf)-log(co)) &
+         deltastr = (3.*log(rnf)-2.*log(anf)-log(ao)) &
          /(log(anf)-log(ao))    ! diagnose new deltastar
-         
+         IF(masssizeflag.eq.1)deltastr=1.0
       else
          deltastr = 1.
       endif
@@ -3807,7 +3876,7 @@ CONTAINS
       deltastr = min(max(deltastr,0.55),1.5)
   
       if(deltastr.ge.1.0)then   ! if columns, get c from c-a relation
-         cf = (co/ao**(deltastr))*anf**deltastr
+         cf = (ao**(1.-deltastr))*anf**deltastr
       endif
 
       phif = phii*(rnf**3/r**3)**((igr-1.)/(igr+2.)) ! if plates, get c from aspect ratio after deltat
@@ -3815,181 +3884,25 @@ CONTAINS
 
 !      rnf = rf
       if(deltastr.lt.1.0)then
-         cf = phif*anf*gammnu/exp(gammln(nn+deltastr-1.))
+         cf = phif*anf*gammnu/exp(gammln(nu+deltastr-1.))
       endif
 
-      
+      IF(masssizeflag.eq.1)THEN
+         anf = (ani**(betam-1.0) + 4.*pi*gi*sui*cap*(betam-1.)/&
+         (alphams*betam)*exp(gammln(nu+1.))/&
+         exp(gammln(nu+betam)) * deltt)**(1./(betam-1.))
+         rnf = anf
+!     iwc = ni*alphams*lf**betam * gammnubet/gammnu
+         iwc = ni*alphams*anf**betam * gammnubet/gammnu
+!     dlndt = dmdt/(ni*lenconv(ln,deltastr,nu,alpham,betam,alphstr))
+      END IF
 !      END IF !MICRO_ON
 
  
       return
       END SUBROUTINE EVOLVE
 
-    !********************************************************
-    !THIS SUBROUTINE COMPUTES DELTASTR, ICE DENSITY, AND ICE
-    !EQUIVALENT VOL RADIUS AND SUBSEQUENTLY PERFORMS LIMIT
-    !CHECKS.
-    !********************************************************
-    SUBROUTINE ICE_CHECKS(iflag,ni,qi,ani,cni,rni,deltastr,rhobar,iaspect,&
-         sphrflag,redden,betam,alphstr,alphv)
-                 
-      IMPLICIT NONE
-      INTEGER iaspect, sphrflag, redden,iflag
-      REAL qi, ni, ani, cni, rni, deltastr, rhobar
-      REAL betam,alphstr,alphv
-      
-      CALL DSTR_CHECK(iflag,ni,ani,cni,deltastr,iaspect,sphrflag)
-      CALL RHO_CHECK(iflag,deltastr,qi,ni,ani,cni,sphrflag,redden,betam,alphstr,alphv,rhobar)
-      CALL R_CHECK(iflag,qi,ni,cni,ani,rni,rhobar,deltastr,betam,alphstr,alphv)
-                 
 
-    END SUBROUTINE ICE_CHECKS
-
-    SUBROUTINE DSTR_CHECK(iflag,ni,ani,cni,deltastr,iaspect,sphrflag)
-      
-      IMPLICIT NONE
-      INTEGER :: iaspect,sphrflag,iflag
-      REAL ::  ani, cni, deltastr, voltmp, ai, ci, ni, n, gn
-
-      !     get deltastr from cni and ani
-      !     deltastr = 1 for ice particles pre-diagnosed as spheres
-
-      IF(iflag .eq. 1)THEN
-         n = nu
-      ELSE IF(iflag .eq. 2)THEN
-         n = nus
-      END IF
-      gn = exp(gammln(n))
-      
-      IF((log(ani)-log(ao)).gt. 0.01 &
-           .and.(log(cni)-log(co)).gt.0.001)THEN
-         deltastr = (log(cni)-log(co))/(log(ani)-log(ao))
-      ELSE
-         deltastr = 1.
-      ENDIF
-      
-      
-      IF(iaspect .eq. 1) deltastr = 0.8
-      IF(sphrflag .eq. 1) deltastr = 1.0
-      
-               
-      if(deltastr.lt.0.55) then
-         voltmp=(4./3.)*pi*co/ao**(deltastr)*ani**(2.+deltastr)* &
-              (exp(gammln(n+deltastr+2.)))/gn
-         deltastr=0.55
-         ani=((3.*voltmp*gn)/ &
-              (4.*pi*co/ao**(deltastr)*(exp(gammln(n+deltastr+2.)))))** &
-              (1./(2.+deltastr))
-         ai=max((n*ni*ani),1.e-20)
-         ani=ai/(n*ni)
-      else if (deltastr.gt.1.5) then
-         voltmp=(4./3.)*pi*co/ao**(deltastr)*ani**(2.+deltastr)* &
-              (exp(gammln(n+deltastr+2.)))/gn
-         deltastr=1.5
-         ani=((3.*voltmp*gn)/ &
-              (4.*pi*co/ao**(deltastr)*(exp(gammln(n+deltastr+2.)))))** &
-              (1./(2.+deltastr))
-         ai=max((n*ni*ani),1.e-20)
-         ani=ai/(n*ni)
-         cni=co*(ani/ao)**deltastr
-         ci=max((n*ni*cni),1.e-20)
-         cni=ci/(n*ni)
-      endif
-      
-    END SUBROUTINE DSTR_CHECK
-
-    SUBROUTINE RHO_CHECK(iflag,deltastr,qi,ni,ani,cni,sphrflag,redden,betam,alphstr,alphv,rhobar)
-      IMPLICIT NONE
-      INTEGER sphrflag, redden, iflag
-      REAL deltastr, qi, ni, ani, cni, n, gn
-      REAL alphstr, alphv, betam
-      REAL rhobar
-
-      IF(iflag .eq. 1)THEN
-         n = nu
-      ELSE IF(iflag .eq. 2)THEN
-         n = nus
-      END IF
-      gn = exp(gammln(n))
-      
-      betam = 2.+deltastr
-      alphstr = co/ao**(deltastr)
-      alphv = (4./3.)*pi*alphstr
-      
-      !     get avg ice density 
-               
-      rhobar = qi*gn/(ni*alphv* &
-           ani**betam*exp(gammln(n+betam)))
-               
-      IF(sphrflag.eq.2) rhobar = 920.
-      If(redden .eq. 1) rhoi = 500.
-
-      IF(rhobar.gt.920.)THEN 
-                      
-         rhobar=920.
-         ani=((qi*gn)/(rhobar*ni*alphv*&
-              exp(gammln(n+betam))))**(1./betam)
-         cni=co*(ani/ao)**deltastr
-                  
-      ELSE IF(rhobar.lt.50.)THEN
-                      
-         rhobar=50.
-         ani=((qi*gn)/(rhobar*ni*alphv*&
-              exp(gammln(n+betam))))**(1./betam)
-         cni=co*(ani/ao)**deltastr
-                      
-      END IF
-
-              
-
-      
-    END SUBROUTINE RHO_CHECK
-
-    !     get rni (characteristic equivalent volume ice radius)
-    SUBROUTINE R_CHECK(iflag,qi,ni,cni,ani,rni,rhobar,deltastr,betam,alphstr,alphv)
-      IMPLICIT NONE
-      INTEGER iflag
-      REAL qi, ni, cni, ani, rhobar, deltastr, n, gn
-      REAL rni
-      REAL alphstr, alphv, betam
-
-      IF(iflag .eq. 1)THEN
-         n = nu
-      ELSE IF(iflag .eq. 2)THEN
-         n = nus
-      END IF
-      gn = exp(gammln(n))
-      
-      betam = 2.+deltastr
-      alphstr = co/ao**(deltastr)
-      alphv = (4./3.)*pi*alphstr
-
-      rni = (qi*3./(ni*rhobar*4.*pi*&
-           (exp(gammln(n+deltastr+2.))/gn)))**(1./3.)
-      
-      
-      !     make sure rni is within reasonable bounds,
-      
-      IF(rni.lt.2.e-6)THEN
-         
-         rni=2.e-6
-         ni=3.*qi*gn/(4.*pi*rhobar*rni**3.*&
-              (exp(gammln(n+deltastr+2.))))
-         ani=((qi*gn)/(rhobar*ni*alphv* &
-              exp(gammln(n+betam))))**(1./betam) 
-         cni=co*(ani/ao)**deltastr
-         
-      ELSE IF(rni.gt.2.e-3)THEN
-         
-         rni=2.e-3
-         ni=3.*qi*gn/(4.*pi*rhobar*rni**3.* &
-              (exp(gammln(n+deltastr+2.))))
-         ani=((qi*gn)/(rhobar*ni*alphv* &
-              exp(gammln(n+betam))))**(1./betam)
-         cni=co*(ani/ao)**deltastr
-         
-      END IF
-    END SUBROUTINE R_CHECK
 
 
 !------------------------------------------------------------------
@@ -4422,6 +4335,19 @@ CONTAINS
 !C ---------- LAST LINE OF GAMMA ----------
       END function gamma
 
+      LOGICAL FUNCTION  wrf_dm_on_monitor()
+      IMPLICIT NONE
+#ifndef STUBMPI
+      INCLUDE 'mpif.h'
+      INTEGER tsk, ierr, mpi_comm_local
+      CALL wrf_get_dm_communicator( mpi_comm_local )
+      CALL mpi_comm_rank ( mpi_comm_local, tsk , ierr )
+      wrf_dm_on_monitor = tsk .EQ. 0
+#else
+      wrf_dm_on_monitor = .TRUE.
+#endif
+      RETURN
+      END FUNCTION wrf_dm_on_monitor
 
 
 

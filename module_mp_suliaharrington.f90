@@ -389,7 +389,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       REAL vtbarb, vtbarbm, vtbarblen, vtdumm, vtdumn
       REAL alpham, alpha_v, beta_v, alpha_a, beta_a, lmean, cap
       REAL qt_adv, qt_sed, qi_frac, qiold, niold
-      REAL*8 sui, sup, qvqvs, qvqvsi
+      REAL(8) sui, sup, qvqvs, qvqvsi
 
       !snow characteristics (aggregate microphysics)
       REAL ans, cns, rns, rhobars, deltastrs, vs, swci, swcf, phisf, rnsf, &

@@ -441,7 +441,7 @@ CONTAINS
          CPLX2D,PHIS2D,RHOS2D,CPLXS2D)
 
 !     TRANSFER 2D ARRAYS BACK TO 3D FOR WRF
-
+ 
          DO i=its,ite
             DO k=kts,kte
 

@@ -12,6 +12,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       REAL, PRIVATE ::  rd      !GAS CONSTANT OF DRY AIR
       REAL, PRIVATE ::  cp      !SPECIFIC HEAT FOR DRY AIR (CONST P)
       REAL, PRIVATE ::  ao      !INITIAL CHARACTERISTIC A-AXIS LENGTH
+      REAL, PRIVATE ::  co      !INITIAL CHARACTERISTIC C-AXIS LENGTH
       REAL, PRIVATE ::  li0     !INITIAL SEMI-MAJOR AXIS LENGTH
       REAL, PRIVATE ::  mi0     !INITIAL PARTICLE MASS
       REAL, PRIVATE ::  gammnu  !GAMMA DIST WITH SHAPE, NU
@@ -68,6 +69,10 @@ MODULE MODULE_MP_SULIAHARRINGTON
       REAL, PRIVATE :: cons40,cons41
       REAL, PRIVATE :: FUDGE
 
+      REAL, PRIVATE :: coll_ni(5), coll_an(4), coll_cn(4), coll_nu(8), coll_rho(9)
+      REAL, PRIVATE :: coll(5,4,4,8,9), ncoll(5,4,4,8,9)
+      INTEGER, PRIVATE :: ii, jj, kk, ll, mm, iii, jjj, kkk, lll, mmm
+
   
 CONTAINS
 !*************************************************************************************
@@ -89,8 +94,9 @@ CONTAINS
       rd = 287.15
       cp = 1005.
       cpw = 4187.
-      ao = .1e-6
-      li0 = 1.e-6
+      ao = 1.e-6
+      co = ao
+      li0 = ao
       mi0 = 4./3.*pi*rhoi*(li0)**3
       gammnu = exp(gammln(nu))
       qsmall = 1.e-14
@@ -175,6 +181,22 @@ CONTAINS
       cons41 = pi*pi*ecr*rhow
 
       FUDGE = 0.9999
+
+      iii = 5
+      jjj = 4
+      kkk = 4
+      lll = 8
+      mmm = 9
+
+      OPEN(1,FILE="COLL.bin",form='unformatted')!!Lookup table for aggregation mass and number
+      READ(1) (coll_ni(ii),ii=1,iii) !ni = 1, 10, 100, 1000, 10000 L-1
+      READ(1) (coll_an(jj),jj=1,jjj) !an = 1, 10, 100, 1000, 10000 um
+      READ(1) (coll_cn(kk),kk=1,kkk) !cn = 1, 10, 100, 1000, 10000 um
+      READ(1) (coll_nu(ll),ll=1,lll) !nu = 1, 2, 3, 4, 5, 6, 7, 8
+      READ(1) (coll_rho(mm),mm=1,mmm)!rho = 100, 200, 300, 400, 500, 600, 700, 800, 900 kg/m3
+      READ(1) (((((coll(ii,jj,kk,ll,mm),ii=1,iii),jj=1,jjj),kk=1,kkk),ll=1,lll),mm=1,mmm)
+      READ(1) (((((ncoll(ii,jj,kk,ll,mm),ii=1,iii),jj=1,jjj),kk=1,kkk),ll=1,lll),mm=1,mmm)
+      CLOSE(1)
 
       END SUBROUTINE SULIAHARRINGTON_INIT
 
@@ -1941,6 +1963,57 @@ CONTAINS
                ai(i,k)=nu*ni(i,k)*ani
 
             END IF              ! q > qsmall
+
+            if(snowflag.eq.2)then
+               prds=max(prds,-qs(i,k)/dt)
+               
+               qs(i,k)=qs(i,k)+(prds)*dt
+               as(i,k)=as(i,k)+(ards)*dt
+               cs(i,k)=cs(i,k)+(crds)*dt
+               
+               IF(prds .gt. 0.0)THEN
+                  snowdep(i,k) = prds
+               ELSE
+                  snowsub(i,k) = prds
+               ENDIF
+
+               !     if sublimation, reduce snow number,
+               !     NOTE: this should not impact rhobars, since
+               !     rhobars contains terms with qs/ns and ratio
+               !     of qs/ns is assumed constant during loss of ns
+               
+               IF(qs(i,k).ge.qsmall.and.ns(i,k).gt.qsmall)THEN
+               
+                  IF(prds.lt.0.)THEN
+                     ns(i,k)=ns(i,k)+prds*ns(i,k)/qs(i,k)*dt
+                  END IF
+
+                  !     set minimum ni to avoid taking root of a negative number
+                  ns(i,k)=max(ns(i,k),qsmall)
+                  
+                  !     if iflag=1, then recalculate as and cs assuming same deltastrs
+                  !     and same rhobars
+                  !     this is needed for consistency between qs, as, cs, etc.
+                  !     since growth rate prd must be scaled back
+               
+                  IF(iflag.eq.1)THEN
+                     alphstr=co/ao**(deltastrs)
+                     alphv=4./3.*pi*alphstr
+                     betam=2.+deltastrs   
+                     
+                     ans=((qs(i,k)*exp(gammln(nus+betam)))/(rhobars*ns(i,k)*alphv*&
+                          exp(gammln(nus+betam))))**(1./betam)
+                     
+                     cns=co*(ans/ao)**deltastrs
+                  END IF           ! iflag = 1
+                  
+                  CALL R_CHECK(2,qs(i,k),ns(i,k),cns,ans,rns,rhobars,deltastrs,&
+                       betam,alphstr,alphv)
+               
+                  cs(i,k)=nus*ns(i,k)*cns
+                  as(i,k)=nus*ns(i,k)*ans
+               END IF              ! q > qsmall
+            end if
             
             betam=2.+deltastr
             alphstr=ao**(1.-deltastr)
@@ -2033,6 +2106,9 @@ CONTAINS
                   qs(i,k) = 0.0
                   ns(i,k) = 0.0
                END IF
+            ELSE IF(snowflag.eq.2)THEN
+               CALL COLL_LOOKUP(ni(i,k),ani,cni,rhobar,agg,nagg)
+
             END IF!snowflag
 !..................................................................
 !     now update qi, ni, ai, and ci due to ice nucleation
@@ -2287,13 +2363,16 @@ CONTAINS
                   ai(i,k)=0.
                   ci(i,k)=0.
                END IF
-!               IF(qs(i,k).ge.qsmall)THEN
-!                  qr(i,k)=qr(i,k)+qs(i,k)
-!                  nr(i,k)=nr(i,k)+ns(i,k)
-!                  t(i,k)=t(i,k)-qs(i,k)*xxlf/cpm
-!                  qs(i,k)=0.
-!                  ns(i,k)=0.
-!               END IF
+               IF(snowflag.eq.2)THEN
+                  IF(qs(i,k).ge.qsmall)THEN
+                     qr(i,k)=qr(i,k)+qs(i,k)
+                     nr(i,k)=nr(i,k)+ns(i,k)
+                     t(i,k)=t(i,k)-qs(i,k)*xxlf/cpm
+                     snowmelt(i,k) = qs(i,k)/dt
+                     qs(i,k)=0.
+                     ns(i,k)=0.
+                  END IF
+               END IF
             END IF
 !     homogeneous freezing, freeze andd cloud and rain water within one time-step below -40
             IF(homofreeze .eq. 1.and.t(i,k).le.233.15.and.&

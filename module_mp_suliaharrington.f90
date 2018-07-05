@@ -1791,7 +1791,7 @@ CONTAINS
                   ,masssizeflag,ipart,sphrflag,redden,itimestep) 
               
                   betam = deltastr + 2.0
-                  alphstr = ao**(1.-deltastr)
+                  alphstr = co/ao**(deltastr)
                   alphv = 4./3.*pi*alphstr
                   
                   phi(i,k)=phif
@@ -1844,7 +1844,7 @@ CONTAINS
                           ,masssizeflag,ipart,sphrflag,redden,itimestep) 
                      
                      betam = deltastr + 2.0
-                     alphstr = ao**(1.-deltastr)
+                     alphstr = co/ao**(deltastr)
                      alphv = 4./3.*pi*alphstr
                      
                      phis(i,k)=phisf
@@ -1940,7 +1940,7 @@ CONTAINS
 !     since growth rate prd must be scaled back
                
                IF(iflag.eq.1)THEN
-                  alphstr=ao**(1.-deltastr)
+                  alphstr=co/ao**(deltastr)
                   alphv=4./3.*pi*alphstr
                   betam=2.+deltastr   
                   
@@ -1951,7 +1951,7 @@ CONTAINS
 !                     ani=((qi(i,k)*gammnu)/(ni(i,k)*alphamsp*&
 !                     exp(gammln(nu+betam))))**(1./betam)
 !                  END IF
-                  cni=ao**(1.-deltastr)*ani**deltastr
+                  cni=co*(ani/ao)**deltastr
                   ci(i,k)=nu*ni(i,k)*cni
                   ai(i,k)=nu*ni(i,k)*ani
                END IF           ! iflag = 1
@@ -2016,7 +2016,7 @@ CONTAINS
             end if
             
             betam=2.+deltastr
-            alphstr=ao**(1.-deltastr)
+            alphstr=co/ao**(deltastr)
             alphv=4./3.*pi*alphstr     
 
 !     calculate simplified aggregation for snow category 
@@ -2097,7 +2097,7 @@ CONTAINS
                IF(qi(i,k).gt.qsmall.and.ni(i,k).gt.qsmall)THEN
                   ani = ((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
                        exp(gammln(nu+betam))))**(1./betam)
-                  cni=ao**(1.-deltastr)*ani**deltastr
+                  cni=co*(ani/ao)**deltastr
                   ci(i,k)=nu*ni(i,k)*cni
                   ai(i,k)=nu*ni(i,k)*ani  
                END IF
@@ -2161,7 +2161,7 @@ CONTAINS
 
                ani=((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
                    exp(gammln(nu+betam))))**(1./betam)
-               cni=ao**(1.-deltastr)*ani**deltastr
+               cni=co*(ani/ao)**deltastr
                ci(i,k)=nu*ni(i,k)*cni
                ai(i,k)=nu*ni(i,k)*ani
 
@@ -3474,53 +3474,6 @@ CONTAINS
       alpha_v = 0.
       beta_v = 0.
 
-!      IF(masssizeflag .EQ. 1)THEN
-
-!         IF(ipart .eq. 0)THEN
-!            capgam = 2.*.1803*l*gammnu1/gammnu ! cap for a needle in RAMS
-            
-!         ELSE IF(ipart .ge. 1)THEN
-!            capgam = 2.*0.179*l*gammnu1/gammnu !cap for a column in RAMS
-!         END IF
-         
-!         IF(celsius .lt. -10.0 .and. celsius .gt. -20.0)THEN
-            
-!            IF(ipart .eq. 0 .or. ipart .eq. 3)THEN
-!               capgam = 2.*.3183*l*gammnu1/gammnu !cap for a dendrite
-               
-!            ELSE IF(ipart.eq.1.or.ipart.eq.2)THEN
-!               capgam = 2.*0.429*l*gammnu1/gammnu ! cap for a plate in RAMS
-!            END IF
-!            
-!         END IF  
-
-!         cap=capgam/(l*gammnu1/gammnu)
-
-!         CALL getmasssize(celsius,l,alpham,&
-!         betam,alpha_a,beta_a,alpha_v,beta_v,cap,ipart)
-
-!         alphams=alpham*2.**betam
-!         alpha_as=alpha_a*2.**beta_a
-!         IF(alphap.eq.0.0)THEN
-!            alphap=alphams
-!            alphamsp=alphams
-!            betamp=betam
-!         END IF
-!     deltastr=betam-2.
-!     alphstr=ao**(1.-deltastr)
-!         capgam=cap   
-!         gammnubet=exp(gammln(nu+betam))
-!         iwci=ni*alphams*l**betam*gammnubet/gammnu
-         
-!      END IF
-
-!      dmdt = 4.*pi*gi*sui*ni*capgam
-
-        !     get alpham and betam from deltastr
-!      dlndt = dmdt/(ni*lenconv(ani,deltastr,nu,alpham,&
-!      betam,alphstr,rhoavg))
-
-
       gammnubet = exp(gammln(nu+betam))
       gammnu2delt = exp(gammln(nu+2.+deltastr))
       gammnu1delt = exp(gammln(nu+deltastr-1.))
@@ -3710,7 +3663,7 @@ CONTAINS
          rhodep = rhoavg        ! during sublimation using polynomial
          videp = 4./3.*pi*rni**3 & 
          *exp(gammln(nu+deltastr+2.))/gammnu
-         Vmin = 4./3.*pi*ao**3
+         Vmin = 4./3.*pi*ao**2*co
          if(Vmin.lt.videp)then
             betavol = alog(rhoi/rhoavg)*1./(alog(Vmin/videp))
             rhodep = rhoavg*(1.+betavol)
@@ -3735,9 +3688,9 @@ CONTAINS
 !      IF(masssizeflag.eq.1) iwc=ni*alpham*rnf**betam*&
 !      (gammnu/exp(gammln(nu+deltastr+2.)))**(3./betam)
 
-      if(igr.ne.1.0.and.(log(anf)-log(ao)).gt.0.01 .and.&
+      if(igr.ne.1.0.and.(log(anf)-log(co)).gt.0.01 .and.&
       (3.*log(rnf)-2.*log(anf)-log(ao)).gt.0.001)THEN
-         deltastr = (3.*log(rnf)-2.*log(anf)-log(ao)) &
+         deltastr = (3.*log(rnf)-2.*log(anf)-log(co)) &
          /(log(anf)-log(ao))    ! diagnose new deltastar
          IF(masssizeflag.eq.1)deltastr=1.0
       else
@@ -3810,8 +3763,8 @@ CONTAINS
       gn = exp(gammln(n))
       
       IF((log(ani)-log(ao)).gt. 0.01 &
-           .and.(log(cni)-log(ao)).gt.0.001)THEN
-         deltastr = (log(cni)-log(ao))/(log(ani)-log(ao))
+           .and.(log(cni)-log(co)).gt.0.001)THEN
+         deltastr = (log(cni)-log(co))/(log(ani)-log(ao))
       ELSE
          deltastr = 1.
       ENDIF
@@ -3822,24 +3775,24 @@ CONTAINS
       
                
       if(deltastr.lt.0.55) then
-         voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
+         voltmp=(4./3.)*pi*co/ao**(deltastr)*ani**(2.+deltastr)* &
               (exp(gammln(n+deltastr+2.)))/gn
          deltastr=0.55
          ani=((3.*voltmp*gn)/ &
-              (4.*pi*ao**(1.-deltastr)*(exp(gammln(n+deltastr+2.)))))** &
+              (4.*pi*co/ao**(deltastr)*(exp(gammln(n+deltastr+2.)))))** &
               (1./(2.+deltastr))
          ai=max((n*ni*ani),1.e-20)
          ani=ai/(n*ni)
       else if (deltastr.gt.1.5) then
-         voltmp=(4./3.)*pi*ao**(1.-deltastr)*ani**(2.+deltastr)* &
+         voltmp=(4./3.)*pi*co/ao**(deltastr)*ani**(2.+deltastr)* &
               (exp(gammln(n+deltastr+2.)))/gn
          deltastr=1.5
          ani=((3.*voltmp*gn)/ &
-              (4.*pi*ao**(1.-deltastr)*(exp(gammln(n+deltastr+2.)))))** &
+              (4.*pi*co/ao**(deltastr)*(exp(gammln(n+deltastr+2.)))))** &
               (1./(2.+deltastr))
          ai=max((n*ni*ani),1.e-20)
          ani=ai/(n*ni)
-         cni=ao**(1.-deltastr)*ani**deltastr
+         cni=co*(ani/ao)**deltastr
          ci=max((n*ni*cni),1.e-20)
          cni=ci/(n*ni)
       endif
@@ -3861,7 +3814,7 @@ CONTAINS
       gn = exp(gammln(n))
       
       betam = 2.+deltastr
-      alphstr = ao**(1.-deltastr)
+      alphstr = co/ao**(deltastr)
       alphv = (4./3.)*pi*alphstr
       
       !     get avg ice density 
@@ -3877,14 +3830,14 @@ CONTAINS
          rhobar=920.
          ani=((qi*gn)/(rhobar*ni*alphv*&
               exp(gammln(n+betam))))**(1./betam)
-         cni=ao**(1.-deltastr)*ani**deltastr
+         cni=co*(ani/ao)**deltastr
                   
       ELSE IF(rhobar.lt.50.)THEN
                       
          rhobar=50.
          ani=((qi*gn)/(rhobar*ni*alphv*&
               exp(gammln(n+betam))))**(1./betam)
-         cni=ao**(1.-deltastr)*ani**deltastr
+         cni=co*(ani/ao)**deltastr
                       
       END IF
 
@@ -3909,7 +3862,7 @@ CONTAINS
       gn = exp(gammln(n))
       
       betam = 2.+deltastr
-      alphstr = ao**(1.-deltastr)
+      alphstr = co/ao**(deltastr)
       alphv = (4./3.)*pi*alphstr
 
       rni = (qi*3./(ni*rhobar*4.*pi*&
@@ -3925,7 +3878,7 @@ CONTAINS
               (exp(gammln(n+deltastr+2.))))
          ani=((qi*gn)/(rhobar*ni*alphv* &
               exp(gammln(n+betam))))**(1./betam) 
-         cni=ao**(1.-deltastr)*ani**deltastr
+         cni=co*(ani/ao)**deltastr
          
       ELSE IF(rni.gt.2.e-3)THEN
          
@@ -3934,7 +3887,7 @@ CONTAINS
               (exp(gammln(n+deltastr+2.))))
          ani=((qi*gn)/(rhobar*ni*alphv* &
               exp(gammln(n+betam))))**(1./betam)
-         cni=ao**(1.-deltastr)*ani**deltastr
+         cni=co*(ani/ao)**deltastr
          
       END IF
     END SUBROUTINE R_CHECK

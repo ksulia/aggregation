@@ -1396,7 +1396,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
             IF(snowflag .eq. 1)THEN
                qs(i,k) = qs(i,k)+(-pracs+psmlt+evpms+prds+eprds)*dt
                ns(i,k) = ns(i,k)+(nsagg+nsubs+nsmlts)*dt
-               print*,-pracs,psmlt,evpms,prds,eprds,nsagg,nsubs,nsmlts
             END IF
             qv(i,k)=qv(i,k)+(-pre-evpms-prds-eprds)*dt
             temp=temp+(xxlv*pre+(evpms+prds+eprds)*xxls+&

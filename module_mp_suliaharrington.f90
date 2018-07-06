@@ -342,7 +342,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       its,ite,jts,jte,kts,kte,&
       itimestep
 
-      INTEGER, SAVE :: nus = 4
+      REAL, SAVE :: nus = 4.
 
       REAL, DIMENSION(its:ite,kts:kte),INTENT(INOUT) :: &
       qv, qc, qr, qs, qi, nc, nr, ns, ni, ai, ci, as, cs, t
@@ -406,7 +406,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       !snow characteristics (aggregate microphysics)
       REAL ans, cns, rns, rhobars, deltastrs, vs, swci, swcf, phisf, rnsf, &
            vtbarbs, vtbarbms, vtbarblens, ards, ansf, crds, cnsf, phiis, &
-           ans_new, cns_new, ns_new, frac
+           ans_new, cns_new, ns_new, as_new, frac
 
       REAL lammin, lammax, lamc, pgam
 
@@ -985,7 +985,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
                
                !check that deltastr, rhobar, and rni are within reasonable bounds
-               CALL ICE_CHECKS(1,ni(i,k),qi(i,k),ani,cni,rni,deltastr,rhobar,&
+               CALL ICE_CHECKS(nu,ni(i,k),qi(i,k),ani,cni,rni,deltastr,rhobar,&
                     iaspect,sphrflag,redden)
 
                ci(i,k)=nu*ni(i,k)*cni
@@ -1010,7 +1010,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   
                   nidum = ni(i,k)*rho(i,k)
                   
-                  CALL EVOLVE(1,ani,nidum,sui,sup,qvv,temp,press,igr,dt,iwcf,&
+                  CALL EVOLVE(nu,ani,nidum,sui,sup,qvv,temp,press,igr,dt,iwcf,&
                   cnf,iwci,phii,phif,cni,rni,rnf,anf,deltastr,mu,&
                   rhobar,vtbarb,vtbarbm,alphstr,vtbarblen,rhoa,i,k,iaspect&
                   ,ipart,sphrflag,redden,itimestep) 
@@ -1040,7 +1040,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   cns = cs(i,k)/(nus*ns(i,k))
        
                   !check that deltastr, rhobar, and rni are within reasonable bounds
-                  CALL ICE_CHECKS(2,ns(i,k),qs(i,k),ans,cns,rns,deltastrs,rhobars,&
+                  CALL ICE_CHECKS(nus,ns(i,k),qs(i,k),ans,cns,rns,deltastrs,rhobars,&
                        iaspect,sphrflag,redden)
                   
                   cs(i,k)=nus*ns(i,k)*cns
@@ -1061,7 +1061,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                      
                      nidum = ns(i,k)*rho(i,k)
                      
-                     CALL EVOLVE(2,ans,nidum,sui,sup,qvv,temp,press,igr,dt,swcf,&
+                     CALL EVOLVE(nus,ans,nidum,sui,sup,qvv,temp,press,igr,dt,swcf,&
                           cnsf,swci,phiis,phisf,cns,rns,rnsf,ans,deltastrs,mu,&
                           rhobars,vtbarbs,vtbarbms,alphstr,vtbarblens,rhoa,i,k,iaspect&
                           ,ipart,sphrflag,redden,itimestep) 
@@ -1163,7 +1163,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   ai(i,k)=nu*ni(i,k)*ani
                END IF           ! iflag = 1
 
-               CALL R_CHECK(1,qi(i,k),ni(i,k),cni,ani,rni,rhobar,deltastr)
+               CALL R_CHECK(nu,qi(i,k),ni(i,k),cni,ani,rni,rhobar,deltastr)
                
                ci(i,k)=nu*ni(i,k)*cni
                ai(i,k)=nu*ni(i,k)*ani
@@ -1213,7 +1213,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                      cns=co*(ans/ao)**deltastrs
                   END IF           ! iflag = 1
                   
-                  CALL R_CHECK(2,qs(i,k),ns(i,k),cns,ans,rns,rhobars,deltastrs)
+                  CALL R_CHECK(nus,qs(i,k),ns(i,k),cns,ans,rns,rhobars,deltastrs)
                
                   cs(i,k)=nus*ns(i,k)*cns
                   as(i,k)=nus*ns(i,k)*ans
@@ -1296,6 +1296,9 @@ MODULE MODULE_MP_SULIAHARRINGTON
                if(ans.gt.0.)cs(i,k) = as(i,k)*cns/ans
                nus = as(i,k)/(ns(i,k)*ans)
 
+               CALL ICE_CHECKS(nus,ns(i,k),qs(i,k),ans,cns,rns,deltastrs,rhobars,&
+                       iaspect,sphrflag,redden)
+
                qi(i,k) = qi(i,k) - agg*dt/rho(i,k)
                ni(i,k) = ni(i,k) - nagg*dt/rho(i,k)
 
@@ -1343,8 +1346,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
                ani=ai(i,k)/(nu*ni(i,k))
                cni=ci(i,k)/(nu*ni(i,k))
 
-               CALL DSTR_CHECK(1,ni(i,k),ani,cni,deltastr,iaspect,sphrflag)
-               CALL RHO_CHECK(1,deltastr,qi(i,k),ni(i,k),ani,cni,sphrflag,redden,rhobar)
+               CALL DSTR_CHECK(nu,ni(i,k),ani,cni,deltastr,iaspect,sphrflag)
+               CALL RHO_CHECK(nu,deltastr,qi(i,k),ni(i,k),ani,cni,sphrflag,redden,rhobar)
                ci(i,k)=nu*ni(i,k)*cni
                ai(i,k)=nu*ni(i,k)*ani
          
@@ -1957,7 +1960,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 !
 !------------------------------------------------------------------------
 
-      SUBROUTINE EVOLVE(iflag,ani,ni,sui,sup,qvv,temp,press,igr,deltt,iwc,cf,&
+      SUBROUTINE EVOLVE(nn,ani,ni,sui,sup,qvv,temp,press,igr,deltt,iwc,cf,&
           iwci,phii,phif,cni,rni,rnf,anf,deltastr,mu,rhoavg,vtbarb,&
           vtbarbm,alphstr,vtbarblen,rhoa,i,k,iaspect,&
           ipart,sphrflag,redden,itimestep)
@@ -1965,7 +1968,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       IMPLICIT NONE
 
-      INTEGER ipart,ivent,i,k,iaspect,redden,iflag
+      INTEGER ipart,ivent,i,k,iaspect,redden
       INTEGER sphrflag,itimestep,MICRO_ON
       REAL ani,ni,temp,press,qvv, nn
       REAL igr,gi,capgam,dmdt,deltt,qe
@@ -2005,9 +2008,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
       IGR_DEN = IGR
 
       betam = 2. + deltastr
-
-      if(iflag.eq.1) nn = nu
-      if(iflag.eq.2) nn = nus
       
       gammnu=exp(gammln(nn))
       gammnu1=exp(gammln(nn+1.0))
@@ -2278,34 +2278,29 @@ MODULE MODULE_MP_SULIAHARRINGTON
     !EQUIVALENT VOL RADIUS AND SUBSEQUENTLY PERFORMS LIMIT
     !CHECKS.
     !********************************************************
-    SUBROUTINE ICE_CHECKS(iflag,ni,qi,ani,cni,rni,deltastr,rhobar,iaspect,&
+    SUBROUTINE ICE_CHECKS(n,ni,qi,ani,cni,rni,deltastr,rhobar,iaspect,&
          sphrflag,redden)
                  
       IMPLICIT NONE
-      INTEGER iaspect, sphrflag, redden,iflag
-      REAL qi, ni, ani, cni, rni, deltastr, rhobar
+      INTEGER iaspect, sphrflag, redden
+      REAL qi, ni, ani, cni, rni, deltastr, rhobar, n
       
-      CALL DSTR_CHECK(iflag,ni,ani,cni,deltastr,iaspect,sphrflag)
-      CALL RHO_CHECK(iflag,deltastr,qi,ni,ani,cni,sphrflag,redden,rhobar)
-      CALL R_CHECK(iflag,qi,ni,cni,ani,rni,rhobar,deltastr)
+      CALL DSTR_CHECK(n,ni,ani,cni,deltastr,iaspect,sphrflag)
+      CALL RHO_CHECK(n,deltastr,qi,ni,ani,cni,sphrflag,redden,rhobar)
+      CALL R_CHECK(n,qi,ni,cni,ani,rni,rhobar,deltastr)
                  
 
     END SUBROUTINE ICE_CHECKS
 
-    SUBROUTINE DSTR_CHECK(iflag,ni,ani,cni,deltastr,iaspect,sphrflag)
+    SUBROUTINE DSTR_CHECK(n,ni,ani,cni,deltastr,iaspect,sphrflag)
       
       IMPLICIT NONE
-      INTEGER :: iaspect,sphrflag,iflag
-      REAL ::  ani, cni, deltastr, voltmp, ai, ci, ni, n, gn
+      INTEGER :: iaspect,sphrflag
+      REAL ::  ani, cni, deltastr, voltmp, ai, ci, ni, gn, n
 
       !     get deltastr from cni and ani
       !     deltastr = 1 for ice particles pre-diagnosed as spheres
 
-      IF(iflag .eq. 1)THEN
-         n = nu
-      ELSE IF(iflag .eq. 2)THEN
-         n = nus
-      END IF
       gn = exp(gammln(n))
       
       IF((log(ani)-log(ao)).gt. 0.01 &
@@ -2345,18 +2340,13 @@ MODULE MODULE_MP_SULIAHARRINGTON
       
     END SUBROUTINE DSTR_CHECK
 
-    SUBROUTINE RHO_CHECK(iflag,deltastr,qi,ni,ani,cni,sphrflag,redden,rhobar)
+    SUBROUTINE RHO_CHECK(n,deltastr,qi,ni,ani,cni,sphrflag,redden,rhobar)
       IMPLICIT NONE
-      INTEGER sphrflag, redden, iflag
+      INTEGER sphrflag, redden
       REAL deltastr, qi, ni, ani, cni, n, gn
       REAL alphstr, alphv, betam
       REAL rhobar
 
-      IF(iflag .eq. 1)THEN
-         n = nu
-      ELSE IF(iflag .eq. 2)THEN
-         n = nus
-      END IF
       gn = exp(gammln(n))
       
       betam = 2.+deltastr
@@ -2393,18 +2383,12 @@ MODULE MODULE_MP_SULIAHARRINGTON
     END SUBROUTINE RHO_CHECK
 
     !     get rni (characteristic equivalent volume ice radius)
-    SUBROUTINE R_CHECK(iflag,qi,ni,cni,ani,rni,rhobar,deltastr)
+    SUBROUTINE R_CHECK(n,qi,ni,cni,ani,rni,rhobar,deltastr)
       IMPLICIT NONE
-      INTEGER iflag
       REAL qi, ni, cni, ani, rhobar, deltastr, n, gn
       REAL rni
       REAL alphstr, alphv, betam
 
-      IF(iflag .eq. 1)THEN
-         n = nu
-      ELSE IF(iflag .eq. 2)THEN
-         n = nus
-      END IF
       gn = exp(gammln(n))
       
       betam = 2.+deltastr

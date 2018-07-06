@@ -4,7 +4,7 @@
         integer, parameter :: ii = 50, jj = 28, kk = 3
         real :: phi(ii),r(jj)
         real :: an(ii,jj),cn(ii,jj),a(ii,jj)
-        real var(ii,jj+1)
+        real var1(ii,jj+1),var2(ii,jj+1),var3(ii,jj+1)
 
         r(1) = 1
         do j=2,jj
@@ -18,15 +18,21 @@
         end do
 
         open(9,file='a_avg_lookup_new.txt')
+        open(10,file='a_n_lookup_new.txt')
+        open(11,file='c_n_lookup_new.txt')
         do i=1,ii
-           read(9,*) (var(i,j),j=1,jj+1)
+           read(9,*) (var1(i,j),j=1,jj+1)
+           read(10,*) (var2(i,j),j=1,jj+1)
+           read(11,*) (var3(i,j),j=1,jj+1)
         end do
         close(9)
 
         do i=1,ii
-           phi(i) = var(i,1)
+           phi(i) = var1(i,1)
            do j=1,jj
-              a(i,j) = var(i,j+1)    
+              a(i,j) = var1(i,j+1)  
+              an(i,j) = var2(i,j+1) 
+              cn(i,j) = var3(i,j+1) 
            enddo
         enddo
         
@@ -34,29 +40,29 @@
         WRITE(8) (phi(i),i=1,ii)
         WRITE(8) (r(j),j=1,jj)
         WRITE(8) ((a(i,j),i=1,ii),j=1,jj)
+        WRITE(8) ((an(i,j),i=1,ii),j=1,jj)
+        WRITE(8) ((cn(i,j),i=1,ii),j=1,jj)
         CLOSE(8)
 
         phi=0
         r=0
         a=0
-
-        do i=1,ii
-           do j=1,jj   
-              print*,i,j,phi(i),r(j),a(i,j)
-           enddo
-        enddo
+        an=0
+        cn=0
 
 
         OPEN(8,file='ACOLL.bin',form='unformatted')
         READ(8) (phi(i),i=1,ii)
         READ(8) (r(j),j=1,jj)
         READ(8) ((a(i,j),i=1,ii),j=1,jj)
+        READ(8) ((an(i,j),i=1,ii),j=1,jj)
+        READ(8) ((cn(i,j),i=1,ii),j=1,jj)
         CLOSE(8)
 
         
         do i=1,ii
            do j=1,jj   
-              print*,i,j,phi(i),r(j),a(i,j)
+              print*,i,j,phi(i),r(j),a(i,j),an(i,j),cn(i,j)
            enddo
         enddo
         

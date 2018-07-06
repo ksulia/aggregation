@@ -140,6 +140,13 @@ P1 = ax1.plot(time,rhoice)
 plt.xlabel('Time (s)', **axis_font)
 plt.ylabel(r'$\rho_{ice}$  kg m$^{-3}$', **axis_font)
 
+ax1 = plt.subplot(gs[11])
+P1 = ax1.plot(time,ni*1000.)
+plt.xlabel('Time (s)', **axis_font)
+plt.ylabel('n$_{ice}$ L$^{-1}$', **axis_font)
+ax1.ticklabel_format(style='sci', scilimits=(-3,3), axis='y')
+if any(qi) > 0: ax1.set_yscale('log')
+
 
 plt.show()
 fh.close()

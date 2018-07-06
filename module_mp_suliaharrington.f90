@@ -411,7 +411,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       REAL lammin, lammax, lamc, pgam
 
       REAL, DIMENSION(its:ite,kts:kte) :: vtrmi1, vtrni1, vtrli1, &
-      effi1, vtrmc
+      effi1, vtrmc, vtrms, vtrns, vtrls
 
 !     sedimenation terms
       REAL, DIMENSION(kts:kte) ::                                      &
@@ -421,7 +421,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
       falloutnr, falloutns, falloutni, falloutai, falloutci,           &
       qcsten, qrsten, qssten, qisten, ncsten, nrsten, nssten, nisten,  &
       aisten, cisten, arn, acn, asn,                                   &
-      qiloss2,qcloss,qiloss,qrloss,qcloss2,qrloss2
+      qiloss2,qcloss,qiloss,qrloss,qcloss2,qrloss2, 					&
+      fas,fcs,dumas,dumcs,falloutas,falloutcs,assten,cssten
       
       REAL, DIMENSION(its:ite,kts:kte) :: qsum
       REAL ums, umr, uns, unr
@@ -430,7 +431,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       REAL falltndc, falltndr, falltnds, falltndi, falltndnc, &
       falltndnr, falltndns, falltndni, falltndai, falltndci,  &
-      rgvm, precrt, snowrt
+      rgvm, precrt, snowrt,falltndas,falltndcs
 
       REAL ncloud, cdist1
       REAL  qsum2, dthlmax
@@ -600,6 +601,9 @@ MODULE MODULE_MP_SULIAHARRINGTON
             qcloss2(k)=0.0
             qrloss2(k)=0.0
             phi(i,k)=1.0
+            
+            vtbarbm = 0.;vtbarb = 0.;vtbarblen = 0.;
+            vtbarbms = 0.;vtbarbs = 0.;vtbarblens = 0.;
 
             thetal(k)=0.0
             dthl(k)=0.0
@@ -607,7 +611,9 @@ MODULE MODULE_MP_SULIAHARRINGTON
 !     initialize ice characteristics in case first time ice nucleation
 
             deltastr = 1.
+            deltastrs = 1.
             rhobar = 920.
+            rhobars = 920.
             If(redden .eq. 1) rhoi = 500.
             temp = t(i,k)
             celsius = temp-273.15
@@ -677,7 +683,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 !     calculate rain size distribution parameters
             nr(i,k) = max(0.,nr(i,k))
             nc(i,k) = max(0.,nc(i,k))
-            ns(i,k) = max(0.,ns(i,k))
+            if(snowflag.eq.1)ns(i,k) = max(0.,ns(i,k))
             IF(RAINON.eq.1) THEN
                IF(qr(i,k).ge.qsmall)THEN
                   lamr = (pi*rhow*nr(i,k)/qr(i,k))**0.3333
@@ -1015,10 +1021,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   rhobar,vtbarb,vtbarbm,alphstr,vtbarblen,rhoa,i,k,iaspect&
                   ,ipart,sphrflag,redden,itimestep) 
                   
-                  betam = deltastr + 2.0
-                  alphstr = co/ao**(deltastr)
-                  alphv = 4./3.*pi*alphstr
-                  
                   phi(i,k)=phif
                   
 !     get deposition/sublimation process rates for qi, ai, and ci
@@ -1066,10 +1068,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
                           rhobars,vtbarbs,vtbarbms,alphstr,vtbarblens,rhoa,i,k,iaspect&
                           ,ipart,sphrflag,redden,itimestep) 
                      
-                     betam = deltastr + 2.0
-                     alphstr = co/ao**(deltastr)
-                     alphv = 4./3.*pi*alphstr
-                     
                      phis(i,k)=phisf
                      
                      !     get deposition/sublimation process rates for qi, ai, and ci
@@ -1079,7 +1077,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                      ards=(ansf-ans)*nus*ns(i,k)/dt
                      crds=(cnsf-cns)*nus*ns(i,k)/dt 
                   END IF           !EVOLVE_ON
-               END IF              !ice is present
+               END IF              !snow is present
             END IF!snowflag
 !     get ice nucleation 
             IF(temp.lt.268.15 .and.sui.ge.0.05)THEN
@@ -1285,6 +1283,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                cns_new = cnagg*1.e-6
                as_new = aagg*1.e-6*ns_new
 
+
                frac = 0.
                if(ns(i,k)+ns_new.gt.qsmall) frac = ns(i,k)/(ns(i,k)+ns_new)
 
@@ -1294,8 +1293,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
                ans = ans*frac +  ans_new*(1.-frac)
                cns = cns*frac +  cns_new*(1.-frac)
                if(ans.gt.0.)cs(i,k) = as(i,k)*cns/ans
-               nus = as(i,k)/(ns(i,k)*ans)
-
+               if(ns(i,k)*ans.gt.0.)nus = as(i,k)/(ns(i,k)*ans)
+               !print*,nus,as(i,k),ns(i,k),ans
                CALL ICE_CHECKS(nus,ns(i,k),qs(i,k),ans,cns,rns,deltastrs,rhobars,&
                        iaspect,sphrflag,redden)
 
@@ -1409,6 +1408,23 @@ MODULE MODULE_MP_SULIAHARRINGTON
                vtrni1(i,k)=0.
                
             END IF
+            
+            ni(i,k) = max(ni(i,k),qsmall)
+            IF(qi(i,k).gt.qsmall.and.ni(i,k).gt.qsmall) THEN
+
+!     limit fallspeed to 5 m/s
+			   vtrms(i,k)=max(min(vtbarbms,5.),0.)
+               vtrns(i,k)=max(min(vtbarbs,5.),0.)
+               vtrls(i,k)=max(min(vtbarblens,5.),0.)
+
+            ELSE
+               
+               vtrls(i,k)=0.
+               vtrms(i,k)=0.
+               vtrns(i,k)=0.
+               
+            END IF
+            
 !     get ice effective radius
 
 !     for now just set to 10 micron
@@ -1424,6 +1440,16 @@ MODULE MODULE_MP_SULIAHARRINGTON
                ani=0.
                cni=0.
                rhobar=920.
+            END IF
+            IF(snowflag.eq.2)THEN
+				IF(qs(i,k).ge.qsmall.and.ans.gt.qsmall)THEN
+				   phis = cns/ans*exp(gammln(nus+deltastrs-1.))/exp(gammln(nus))
+				ELSE
+				   phis=1.
+				   ans=0.
+				   cns=0.
+				   rhobars=920.
+				END IF
             END IF
             IF(iaspect .eq. 1) phii = 0.27
             IF(sphrflag .eq. 1) rhobar =920.
@@ -1514,7 +1540,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 !     homogeneous freezing, freeze and cloud and rain water within one time-step below -40
             IF(homofreeze .eq. 1.and.t(i,k).le.233.15.and.&
                real(itimestep)*dt.gt.ice_start_time)THEN
-               IF(qr(i,k).ge.qsmall)THEN
+               IF(nr(i,k).ge.qsmall.and.qr(i,k).ge.qsmall)THEN
 
                   qi(i,k)=qi(i,k)+qr(i,k)
                   ni(i,k)=ni(i,k)+nr(i,k)
@@ -1524,22 +1550,26 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   rhoi*nr(i,k))*gammnu/exp(gammln(nu+3)))**(1./3.)
                   ci(i,k) = ci(i,k) + nu*nr(i,k)*(qr(i,k)*3./(4.*pi*&
                   rhoi*nr(i,k))*gammnu/exp(gammln(nu+3)))**(1./3.)
+                  rainfrz(i,k) = qr(i,k)/dt 
                   qr(i,k)=0.
                   nr(i,k)=0.
-                  rainfrz(i,k) = qr(i,k)/dt 
+
                END IF
-               IF(qc(i,k).ge.qsmall)THEN
+               IF(nc(i,k).ge.qsmall.and.qc(i,k).ge.qsmall)THEN
 
                   qi(i,k)=qi(i,k)+qc(i,k)
+                  ni(i,k)=ni(i,k)+nc(i,k)
                   t(i,k)=t(i,k)+qc(i,k)*(xxls-xxlv)/cpm
-                  nnew = qc(i,k)/((4./3.)*pi*rhoi*(20.e-6)**3)
-                  ai(i,k) = ai(i,k) + nu*nnew*(qc(i,k)*3./(4.*pi*&
-                  rhoi*nnew)*gammnu/exp(gammln(nu+3)))**(1./3.)
-                  ci(i,k) = ci(i,k) + nu*nnew*(qc(i,k)*3./(4.*pi*&
-                  rhoi*nnew)*gammnu/exp(gammln(nu+3)))**(1./3.)
-                  ni(i,k) = ni(i,k) + nnew
-                  qc(i,k)=0.
+                  !nnew = qc(i,k)/((4./3.)*pi*rhoi*(20.e-6)**3)
+                  ai(i,k) = ai(i,k) + nu*nc(i,k)*(qc(i,k)*3./(4.*pi*&
+                  rhoi*nc(i,k))*gammnu/exp(gammln(nu+3)))**(1./3.)
+                  ci(i,k) = ci(i,k) + nu*nc(i,k)*(qc(i,k)*3./(4.*pi*&
+                  rhoi*nc(i,k))*gammnu/exp(gammln(nu+3)))**(1./3.)
+                  !ni(i,k) = ni(i,k) + nnew
                   cloudfrz(i,k) = qc(i,k)/dt
+                  qc(i,k)=0.
+                  nc(i,k)=0.
+
                END IF
             END IF
  
@@ -1555,7 +1585,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                ci(i,k) = cni**2*ani*nu*ni(i,k)
             END IF
             rhoice(i,k)=rhobar
-            phi(i,k)=cni/ani
+            
 
             IF(qs(i,k) .gt. qsmall)THEN
                ans = as(i,k)/(ns(i,k)*nus)
@@ -1565,7 +1595,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
                cs(i,k) = cns**2*ans*nus*ns(i,k)
             END IF
             rhos(i,k)=rhobars
-            phis(i,k)=cns/ans
             
          END DO
          IF(LTRUE.eq.0)GOTO 400
@@ -1639,12 +1668,39 @@ MODULE MODULE_MP_SULIAHARRINGTON
                    fs(k) = 0.
                    fns(k) = 0.
                 END IF
+             ELSE IF(snowflag.eq.2)THEN
+				 IF(qs(i,k).ge.qsmall)THEN
+				   fs(k) = vtrms(i,k)
+				   fns(k) = vtrns(i,k)
+				   fas(k) = vtrms(i,k)
+				   fcs(k) = vtrms(i,k)
+				ELSE
+				   fs(k) = 0.0
+				   fns(k) = 0.0
+				   fas(k) = 0.0
+				   fcs(k) = 0.0
+				END IF
              END IF!snowflag
 
+!modify fallspeed below level of precip
+            IF(k.le.kte-1)THEN
+               IF(fi(k).lt.1.e-10) fi(k) = fi(k+1)
+               IF(fni(k).lt.1.e-10) fni(k) = fni(k+1)
+               IF(fai(k).lt.1.e-10) fai(k) = fai(k+1)
+               IF(fci(k).lt.1.e-10) fci(k) = fci(k+1)
+               IF(fs(k).lt.1.e-10) fs(k) = fs(k+1)
+               IF(fns(k).lt.1.e-10) fns(k) = fns(k+1)
+               IF(fas(k).lt.1.e-10) fas(k) = fas(k+1)
+               IF(fcs(k).lt.1.e-10) fcs(k) = fcs(k+1)
+               IF(fr(k).lt.1.e-10) fr(k) = fr(k+1)
+               IF(fnr(k).lt.1.e-10) fnr(k) = fnr(k+1)
+               IF(fc(k).lt.1.e-10) fc(k) = fc(k+1)
+               IF(fnc(k).lt.1.e-10) fnc(k) = fnc(k+1)
+            END IF
 
 !     calculate number of split time steps
 
-            rgvm = max(fi(k),fni(k),fai(k),fci(k),fr(k),fc(k),fs(k),fns(k))
+            rgvm = max(fi(k),fni(k),fai(k),fci(k),fr(k),fc(k),fs(k),fns(k),fas(k),fcs(k))
             nstep = max(int(rgvm*dt/dzq(k)+1.),nstep)
             
             
@@ -1659,6 +1715,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
             dumnc(k) = nc(i,k)*rho(i,k) !kgm^-3
             dums(k) = qs(i,k)*rho(i,k)
             dumns(k) = ns(i,k)*rho(i,k)
+            dumas(k) = as(i,k)*rho(i,k) !unitless (as is volume now)
+            dumcs(k) = cs(i,k)*rho(i,k) !unitless (cs is volume now)
          END DO
 
          DO n = 1, nstep
@@ -1673,6 +1731,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
                falloutnc(k) = fnc(k)*dumnc(k) !kgm^-2 s^-1
                fallouts(k) = fs(k)*dums(k)
                falloutns(k) = fns(k)*dumns(k)
+               falloutas(k) = fas(k)*dumas(k) !m s^-1
+               falloutcs(k) = fcs(k)*dumcs(k) !m s^-1
             END DO
             
 !     top of model
@@ -1688,6 +1748,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
             falltndnc = falloutnc(k)/dzq(k) !kgm^-3 s^-1
             falltnds = fallouts(k)/dzq(k)
             falltndns = falloutns(k)/dzq(k)
+            falltndas = falloutas(k)/dzq(k) !s^-1
+            falltndcs = falloutcs(k)/dzq(k) !s^-1
             
 !     sedimentation tendencies should be renewed every time step
 !     so be sure to initialize to zero at beginning of code (kjs)
@@ -1702,6 +1764,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
             ncsten(k) = ncsten(k) - falltndnc/nstep/rho(i,k) !s^-1
             qssten(k) = qssten(k) - falltnds/nstep/rho(i,k)
             nssten(k) = nssten(k) - falltndns/nstep/rho(i,k)
+            assten(k) = assten(k) - falltndas/nstep/rho(i,k) !m^3 kg^-1 s^-1
+            cssten(k) = cssten(k) - falltndcs/nstep/rho(i,k) !m^3 kg^-1 s^-1
             
             dumi(k) = dumi(k) - falltndi*dt/nstep             
             dumni(k) = dumni(k) - falltndni*dt/nstep
@@ -1713,7 +1777,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
             dumnc(k) = dumnc(k) - falltndnc*dt/nstep
             dums(k) = dums(k) - falltnds*dt/nstep
             dumns(k) = dumns(k) - falltndns*dt/nstep
-            
+            dumas(k) = dumas(k) - falltndas*dt/nstep
+            dumcs(k) = dumcs(k) - falltndcs*dt/nstep
             
             DO k = kte-1,kts,-1
                
@@ -1727,6 +1792,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
                falltndnc = (falloutnc(k+1) - falloutnc(k))/dzq(k)
                falltnds = (fallouts(k+1) - fallouts(k))/dzq(k)
                falltndns = (falloutns(k+1) - falloutns(k))/dzq(k)
+               falltndas = (falloutas(k+1) - falloutas(k))/dzq(k)
+               falltndcs = (falloutcs(k+1) - falloutcs(k))/dzq(k)
                
                qisten(k) = qisten(k) + falltndi/nstep/rho(i,k)
                nisten(k) = nisten(k) + falltndni/nstep/rho(i,k)
@@ -1738,6 +1805,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
                ncsten(k) = ncsten(k) + falltndnc/nstep/rho(i,k)
                qssten(k) = qssten(k) + falltnds/nstep/rho(i,k)
                nssten(k) = nssten(k) + falltndns/nstep/rho(i,k)
+               assten(k) = assten(k) + falltndas/nstep/rho(i,k)
+               cssten(k) = cssten(k) + falltndcs/nstep/rho(i,k)
 
                dumi(k) = dumi(k) + falltndi*dt/nstep
                dumni(k) = dumni(k) + falltndni*dt/nstep
@@ -1749,9 +1818,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
                dumnc(k) = dumnc(k) + falltndnc*dt/nstep
                dums(k) = dums(k) + falltnds*dt/nstep
                dumns(k) = dumns(k) + falltndns*dt/nstep
-
-               !falloutL(i,k) = falloutr(k)+falloutc(k) 
-               !falloutICE(i,k) = fallouti(k)
+               dumas(k) = dumas(k) + falltndas*dt/nstep
+               dumcs(k) = dumcs(k) + falltndcs*dt/nstep
   
                qiloss(k)=qiloss(k)+fallouti(k)
                qrloss(k)=qrloss(k)+falloutr(k)+falloutc(k)
@@ -1781,6 +1849,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
             nc(i,k) = nc(i,k) + ncsten(k)*dt !kg kg^-1
             qs(i,k) = qs(i,k) + qssten(k)*dt
             ns(i,k) = ns(i,k) + nssten(k)*dt
+            as(i,k) = as(i,k) + assten(k)*dt !m kg^-1
+            cs(i,k) = cs(i,k) + cssten(k)*dt !m kg^-1
 
             IF(qi(i,k) .lt. qsmall)THEN
                qi(i,k) = 0.
@@ -1803,6 +1873,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
             IF(qs(i,k).lt.qsmall)THEN
                qs(i,k) = 0.0
                ns(i,k) = 0.0
+               as(i,k) = 0.0
+               cs(i,k) = 0.0
             END IF
             
 !     recalculate cloud, rain, and snow distributions

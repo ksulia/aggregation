@@ -990,7 +990,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
                ci(i,k)=nu*ni(i,k)*cni
                ai(i,k)=nu*ni(i,k)*ani
-
+ 
                
 !     get iwc to calculate iwc tendency
 !     by substracting final and initial values

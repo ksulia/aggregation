@@ -1776,7 +1776,7 @@ CONTAINS
                
                !check that deltastr, rhobar, and rni are within reasonable bounds
                CALL ICE_CHECKS(1,ni(i,k),qi(i,k),ani,cni,rni,deltastr,rhobar,&
-                    iaspect,sphrflag,redden,betam,alphstr,alphv)
+                    iaspect,sphrflag,redden)
 
                ci(i,k)=nu*ni(i,k)*cni
                ai(i,k)=nu*ni(i,k)*ani
@@ -1830,7 +1830,7 @@ CONTAINS
        
                   !check that deltastr, rhobar, and rni are within reasonable bounds
                   CALL ICE_CHECKS(2,ns(i,k),qs(i,k),ans,cns,rns,deltastrs,rhobars,&
-                       iaspect,sphrflag,redden,betam,alphstr,alphv)
+                       iaspect,sphrflag,redden)
                   
                   cs(i,k)=nus*ns(i,k)*cns
                   as(i,k)=nus*ns(i,k)*ans
@@ -1968,8 +1968,7 @@ CONTAINS
                   ai(i,k)=nu*ni(i,k)*ani
                END IF           ! iflag = 1
 
-               CALL R_CHECK(1,qi(i,k),ni(i,k),cni,ani,rni,rhobar,deltastr,&
-                    betam,alphstr,alphv)
+               CALL R_CHECK(1,qi(i,k),ni(i,k),cni,ani,rni,rhobar,deltastr)
                
                ci(i,k)=nu*ni(i,k)*cni
                ai(i,k)=nu*ni(i,k)*ani
@@ -2019,8 +2018,7 @@ CONTAINS
                      cns=co*(ans/ao)**deltastrs
                   END IF           ! iflag = 1
                   
-                  CALL R_CHECK(2,qs(i,k),ns(i,k),cns,ans,rns,rhobars,deltastrs,&
-                       betam,alphstr,alphv)
+                  CALL R_CHECK(2,qs(i,k),ns(i,k),cns,ans,rns,rhobars,deltastrs)
                
                   cs(i,k)=nus*ns(i,k)*cns
                   as(i,k)=nus*ns(i,k)*ans
@@ -2215,8 +2213,7 @@ CONTAINS
                cni=ci(i,k)/(nu*ni(i,k))
 
                CALL DSTR_CHECK(1,ni(i,k),ani,cni,deltastr,iaspect,sphrflag)
-               CALL RHO_CHECK(1,deltastr,qi(i,k),ni(i,k),ani,cni,sphrflag,redden,&
-                    betam,alphstr,alphv,rhobar)
+               CALL RHO_CHECK(1,deltastr,qi(i,k),ni(i,k),ani,cni,sphrflag,redden,rhobar)
                ci(i,k)=nu*ni(i,k)*cni
                ai(i,k)=nu*ni(i,k)*ani
 
@@ -3782,16 +3779,15 @@ CONTAINS
     !CHECKS.
     !********************************************************
     SUBROUTINE ICE_CHECKS(iflag,ni,qi,ani,cni,rni,deltastr,rhobar,iaspect,&
-         sphrflag,redden,betam,alphstr,alphv)
+         sphrflag,redden)
                  
       IMPLICIT NONE
       INTEGER iaspect, sphrflag, redden,iflag
       REAL qi, ni, ani, cni, rni, deltastr, rhobar
-      REAL betam,alphstr,alphv
       
       CALL DSTR_CHECK(iflag,ni,ani,cni,deltastr,iaspect,sphrflag)
-      CALL RHO_CHECK(iflag,deltastr,qi,ni,ani,cni,sphrflag,redden,betam,alphstr,alphv,rhobar)
-      CALL R_CHECK(iflag,qi,ni,cni,ani,rni,rhobar,deltastr,betam,alphstr,alphv)
+      CALL RHO_CHECK(iflag,deltastr,qi,ni,ani,cni,sphrflag,redden,rhobar)
+      CALL R_CHECK(iflag,qi,ni,cni,ani,rni,rhobar,deltastr)
                  
 
     END SUBROUTINE ICE_CHECKS
@@ -3849,7 +3845,7 @@ CONTAINS
       
     END SUBROUTINE DSTR_CHECK
 
-    SUBROUTINE RHO_CHECK(iflag,deltastr,qi,ni,ani,cni,sphrflag,redden,betam,alphstr,alphv,rhobar)
+    SUBROUTINE RHO_CHECK(iflag,deltastr,qi,ni,ani,cni,sphrflag,redden,rhobar)
       IMPLICIT NONE
       INTEGER sphrflag, redden, iflag
       REAL deltastr, qi, ni, ani, cni, n, gn
@@ -3897,7 +3893,7 @@ CONTAINS
     END SUBROUTINE RHO_CHECK
 
     !     get rni (characteristic equivalent volume ice radius)
-    SUBROUTINE R_CHECK(iflag,qi,ni,cni,ani,rni,rhobar,deltastr,betam,alphstr,alphv)
+    SUBROUTINE R_CHECK(iflag,qi,ni,cni,ani,rni,rhobar,deltastr)
       IMPLICIT NONE
       INTEGER iflag
       REAL qi, ni, cni, ani, rhobar, deltastr, n, gn

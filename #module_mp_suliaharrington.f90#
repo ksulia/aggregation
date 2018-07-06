@@ -699,7 +699,7 @@ CONTAINS
            ans_new, cns_new, ns_new, as_new, frac
 
       REAL, DIMENSION(its:ite,kts:kte) :: vtrmi1, vtrni1, vtrli1, &
-      effi1, vtrmc, vtrms, vtrns, vtrls
+      effi1, vtrmc
 
 !     sedimenation terms
       REAL, DIMENSION(kts:kte) ::                                      &
@@ -709,8 +709,7 @@ CONTAINS
       falloutnr, falloutns, falloutng, falloutni, falloutai, falloutci,&
       qcsten, qrsten, qssten, qisten, ncsten, nrsten, nssten, nisten,  &
       aisten, cisten, qgsten, ngsten, arn, acn, asn, agn,              &
-      qiloss2,qcloss,qiloss,qrloss,qcloss2,qrloss2, 					&
-      fas,fcs,dumas,dumcs,falloutas,falloutcs,assten,cssten
+      qiloss2,qcloss,qiloss,qrloss,qcloss2,qrloss2
       
       REAL, DIMENSION(its:ite,kts:kte) :: naggout, nraggout, &
       nsaggout, praout, prciout, prcout, psacwsout, qmultsout,&
@@ -725,7 +724,7 @@ CONTAINS
 
       REAL falltndc, falltndr, falltnds,falltndg,  falltndi, falltndnc, &
       falltndnr, falltndns, falltndng, falltndni, falltndai, falltndci,  &
-      rgvm,falltndas,falltndcs
+      rgvm
 
       REAL, DIMENSION(its:ite) :: precprt, snowrt, snowprt, grplprt
 
@@ -892,7 +891,6 @@ CONTAINS
             agg = 0.; nagg = 0.
 
             vtbarbm = 0.;vtbarb = 0.;vtbarblen = 0.;
-            vtbarbms = 0.;vtbarbs = 0.;vtbarblens = 0.;
 
             qrsten(k)  = 0.0
             qcsten(k)  = 0.0
@@ -1962,8 +1960,6 @@ CONTAINS
 !                     exp(gammln(nu+betam))))**(1./betam)
 !                  END IF
                   cni=co*(ani/ao)**deltastr
-                  ci(i,k)=nu*ni(i,k)*cni
-                  ai(i,k)=nu*ni(i,k)*ani
                END IF           ! iflag = 1
 
                CALL R_CHECK(nu,qi(i,k),ni(i,k),cni,ani,rni,rhobar,deltastr)
@@ -2277,16 +2273,6 @@ CONTAINS
                cni=0.
                rhobar=920.
             END IF
-            IF(snowflag.eq.2)THEN
-				IF(qs(i,k).ge.qsmall.and.ans.gt.qsmall)THEN
-				   phis = cns/ans*exp(gammln(nus+deltastrs-1.))/exp(gammln(nus))
-				ELSE
-				   phis=1.
-				   ans=0.
-				   cns=0.
-				   rhobars=920.
-				END IF
-            END IF
             IF(iaspect .eq. 1) phii = 0.27
             IF(masssizeflag .eq. 1) rhobar=920.
             IF(sphrflag .eq. 1) rhobar =920.
@@ -2468,6 +2454,7 @@ CONTAINS
                ci(i,k) = cni**2*ani*nu*ni(i,k)
             END IF
             rhoice(i,k)=rhobar
+            phi(i,k)=cni/ani
 
             IF(qs(i,k) .gt. qsmall)THEN
                ans = as(i,k)/(ns(i,k)*nus)
@@ -2477,6 +2464,7 @@ CONTAINS
                cs(i,k) = cns**2*ans*nus*ns(i,k)
             END IF
             rhos(i,k)=rhobars
+            phis(i,k)=cns/ans
 
          END DO !end k
 
@@ -2562,18 +2550,6 @@ CONTAINS
                END IF
                fs(k) = min(fs(k),1.2*(rhosu/rho(i,k))**0.54)
                fns(k) = min(fns(k),1.2*(rhosu/rho(i,k))**0.54)
-            ELSE IF(snowflag.eq.2)THEN
-				 IF(qs(i,k).ge.qsmall)THEN
-				   fs(k) = vtrms(i,k)
-				   fns(k) = vtrns(i,k)
-				   fas(k) = vtrms(i,k)
-				   fcs(k) = vtrms(i,k)
-				ELSE
-				   fs(k) = 0.0
-				   fns(k) = 0.0
-				   fas(k) = 0.0
-				   fcs(k) = 0.0
-				END IF
             END IF!snowflag
 
             IF (qg(i,k).ge.qsmall) THEN
@@ -2597,8 +2573,6 @@ CONTAINS
                IF(fci(k).lt.1.e-10) fci(k) = fci(k+1)
                IF(fs(k).lt.1.e-10) fs(k) = fs(k+1)
                IF(fns(k).lt.1.e-10) fns(k) = fns(k+1)
-               IF(fas(k).lt.1.e-10) fas(k) = fas(k+1)
-               IF(fcs(k).lt.1.e-10) fcs(k) = fcs(k+1)
                IF(fr(k).lt.1.e-10) fr(k) = fr(k+1)
                IF(fnr(k).lt.1.e-10) fnr(k) = fnr(k+1)
                IF(fc(k).lt.1.e-10) fc(k) = fc(k+1)
@@ -2609,7 +2583,7 @@ CONTAINS
 !     calculate number of split time steps
 
             rgvm = max(fi(k),fni(k),fai(k),fci(k),fr(k),fnr(k),fc(k),&
-               fnc(k),fs(k),fns(k),fas(k),fcs(k),fg(k),fng(k))
+               fnc(k),fs(k),fns(k),fg(k),fng(k))
             nstep = max(int(rgvm*dt/dzq(k)+1.),nstep)
             
 !     multiply variables by rho for right units
@@ -2623,8 +2597,6 @@ CONTAINS
             dumnc(k) = nc(i,k)*rho(i,k) !kgm^-3
             dums(k) = qs(i,k)*rho(i,k)
             dumns(k) = ns(i,k)*rho(i,k)
-            dumas(k) = as(i,k)*rho(i,k) !unitless (as is volume now)
-            dumcs(k) = cs(i,k)*rho(i,k) !unitless (cs is volume now)
             dumg(k) = qg(i,k)*rho(i,k)
             dumng(k) = ng(i,k)*rho(i,k)
          END DO
@@ -2642,8 +2614,6 @@ CONTAINS
                falloutnc(k) = fnc(k)*dumnc(k) !kgm^-2 s^-1
                fallouts(k) = fs(k)*dums(k)
                falloutns(k) = fns(k)*dumns(k)
-               falloutas(k) = fas(k)*dumas(k) !m s^-1
-               falloutcs(k) = fcs(k)*dumcs(k) !m s^-1
                falloutg(k) = fg(k)*dumg(k)
                falloutng(k) = fng(k)*dumng(k)
 
@@ -2663,8 +2633,6 @@ CONTAINS
             falltndnc = falloutnc(k)/dzq(k) !kgm^-3 s^-1
             falltnds = fallouts(k)/dzq(k)
             falltndns = falloutns(k)/dzq(k)
-            falltndas = falloutas(k)/dzq(k) !s^-1
-            falltndcs = falloutcs(k)/dzq(k) !s^-1
             falltndg = falloutg(k)/dzq(k)
             falltndng = falloutng(k)/dzq(k)
             
@@ -2681,8 +2649,6 @@ CONTAINS
             ncsten(k) = ncsten(k) - falltndnc/nstep/rho(i,k) !s^-1
             qssten(k) = qssten(k) - falltnds/nstep/rho(i,k)
             nssten(k) = nssten(k) - falltndns/nstep/rho(i,k)
-            assten(k) = assten(k) - falltndas/nstep/rho(i,k) !m^3 kg^-1 s^-1
-            cssten(k) = cssten(k) - falltndcs/nstep/rho(i,k) !m^3 kg^-1 s^-1
             qgsten(k) = qgsten(k) - falltndg/nstep/rho(i,k)
             ngsten(k) = ngsten(k) - falltndng/nstep/rho(i,k)
             
@@ -2696,8 +2662,6 @@ CONTAINS
             dumnc(k) = dumnc(k) - falltndnc*dt/nstep
             dums(k) = dums(k) - falltnds*dt/nstep
             dumns(k) = dumns(k) - falltndns*dt/nstep
-            dumas(k) = dumas(k) - falltndas*dt/nstep
-            dumcs(k) = dumcs(k) - falltndcs*dt/nstep
             dumg(k) = dumg(k) - falltndg*dt/nstep
             dumng(k) = dumng(k) - falltndng*dt/nstep            
             
@@ -2713,8 +2677,6 @@ CONTAINS
                falltndnc = (falloutnc(k+1) - falloutnc(k))/dzq(k)
                falltnds = (fallouts(k+1) - fallouts(k))/dzq(k)
                falltndns = (falloutns(k+1) - falloutns(k))/dzq(k)
-               falltndas = (falloutas(k+1) - falloutas(k))/dzq(k)
-               falltndcs = (falloutcs(k+1) - falloutcs(k))/dzq(k)
                falltndg = (falloutg(k+1) - falloutg(k))/dzq(k)
                falltndng = (falloutng(k+1) - falloutng(k))/dzq(k)
                
@@ -2729,8 +2691,6 @@ CONTAINS
                ncsten(k) = ncsten(k) + falltndnc/nstep/rho(i,k)
                qssten(k) = qssten(k) + falltnds/nstep/rho(i,k)
                nssten(k) = nssten(k) + falltndns/nstep/rho(i,k)
-               assten(k) = assten(k) + falltndas/nstep/rho(i,k)
-               cssten(k) = cssten(k) + falltndcs/nstep/rho(i,k)
                qgsten(k) = qgsten(k) + falltndg/nstep/rho(i,k)
                ngsten(k) = ngsten(k) + falltndng/nstep/rho(i,k)
 
@@ -2744,8 +2704,6 @@ CONTAINS
                dumnc(k) = dumnc(k) + falltndnc*dt/nstep
                dums(k) = dums(k) + falltnds*dt/nstep
                dumns(k) = dumns(k) + falltndns*dt/nstep
-               dumas(k) = dumas(k) + falltndas*dt/nstep
-               dumcs(k) = dumcs(k) + falltndcs*dt/nstep
                dumg(k) = dumg(k) + falltndg*dt/nstep
                dumng(k) = dumng(k) + falltndng*dt/nstep
   
@@ -2787,8 +2745,6 @@ CONTAINS
             nc(i,k) = nc(i,k) + ncsten(k)*dt !kg kg^-1
             qs(i,k) = qs(i,k) + qssten(k)*dt
             ns(i,k) = ns(i,k) + nssten(k)*dt
-            as(i,k) = as(i,k) + assten(k)*dt !m kg^-1
-            cs(i,k) = cs(i,k) + cssten(k)*dt !m kg^-1
             qg(i,k) = qg(i,k) + qgsten(k)*dt
             ng(i,k) = ng(i,k) + ngsten(k)*dt
 
@@ -2849,8 +2805,6 @@ CONTAINS
             IF(qs(i,k).lt.qsmall .or. ns(i,k) .lt. qsmall)THEN
                qs(i,k) = 0.0
                ns(i,k) = 0.0
-               as(i,k) = 0.0
-               cs(i,k) = 0.0
             END IF
             IF(qg(i,k).lt.qsmall .or. ng(i,k) .lt. qsmall)THEN
                qg(i,k) = 0.0

@@ -1,5 +1,4 @@
 MODULE MODULE_MP_SULIAHARRINGTON
-    
       IMPLICIT NONE
       
       REAL, PARAMETER :: PI = 3.1415926535897932384626434
@@ -66,10 +65,11 @@ MODULE MODULE_MP_SULIAHARRINGTON
       REAL, PRIVATE :: cons41
       REAL, PRIVATE :: FUDGE
 
-
       REAL, PRIVATE :: coll_ni(5), coll_an(4), coll_cn(4), coll_nu(8), coll_rho(9)
       REAL, PRIVATE :: coll(5,4,4,8,9), ncoll(5,4,4,8,9)
-      INTEGER, PRIVATE :: ii, jj, kk, ll, mm, iii, jjj, kkk, lll, mmm
+      REAL, PRIVATE :: acoll_phi(50), acoll_r(28)
+      REAL, PRIVATE :: acoll_a(50,28), acoll_an(50,28), acoll_cn(50,28)
+      INTEGER, PRIVATE :: ii, jj, kk, ll, mm, nn, oo, iii, jjj, kkk, lll, mmm, nnn, ooo
       
       
     CONTAINS
@@ -150,6 +150,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
       kkk = 4
       lll = 8
       mmm = 9
+      nnn = 50
+      ooo = 28
 
       OPEN(1,FILE="COLL.bin",form='unformatted')!!Lookup table for aggregation mass and number
       READ(1) (coll_ni(ii),ii=1,iii) !ni = 1, 10, 100, 1000, 10000 L-1
@@ -159,6 +161,14 @@ MODULE MODULE_MP_SULIAHARRINGTON
       READ(1) (coll_rho(mm),mm=1,mmm)!rho = 100, 200, 300, 400, 500, 600, 700, 800, 900 kg/m3
       READ(1) (((((coll(ii,jj,kk,ll,mm),ii=1,iii),jj=1,jjj),kk=1,kkk),ll=1,lll),mm=1,mmm)
       READ(1) (((((ncoll(ii,jj,kk,ll,mm),ii=1,iii),jj=1,jjj),kk=1,kkk),ll=1,lll),mm=1,mmm)
+      CLOSE(1)
+
+      OPEN(1,FILE="ACOLL.bin",form='unformatted')!!Lookup table for aggregation a, an, and cn
+      READ(1) (acoll_phi(nn),nn=1,nnn) !phi = 0.01 --> 100.0 logarithmically spaced
+      READ(1) (acoll_r(oo),oo=1,ooo)   !r = 1 -> 10, 20 -> 100, 200 -> 1000 microns
+      READ(1) ((acoll_a(nn,oo),nn=1,nnn),oo=1,ooo)  !a_avg
+      READ(1) ((acoll_an(nn,oo),nn=1,nnn),oo=1,ooo) !an
+      READ(1) ((acoll_cn(nn,oo),nn=1,nnn),oo=1,ooo) !cn
       CLOSE(1)
 
     END SUBROUTINE SULIAHARRINGTON_INIT
@@ -1143,6 +1153,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
                        exp(gammln(nu+betam))))**(1./betam)
                   
                   cni=co*(ani/ao)**deltastr
+                  ci(i,k)=nu*ni(i,k)*cni
+                  ai(i,k)=nu*ni(i,k)*ani
                END IF           ! iflag = 1
 
                CALL R_CHECK(1,qi(i,k),ni(i,k),cni,ani,rni,rhobar,deltastr,&
@@ -1262,8 +1274,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                END IF
 
             ELSE IF(snowflag.eq.2)THEN
-               CALL COLL_LOOKUP(ni(i,k),ani,cni,rhobar,agg,nagg)
-               
+               CALL COLL_LOOKUP(ni(i,k),ani,cni,rhobar,agg,nagg)     
             END IF!snowflag
             
 !..................................................................
@@ -1467,7 +1478,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   END IF
                END IF
             END IF
-!     homogeneous freezing, freeze andd cloud and rain water within one time-step below -40
+!     homogeneous freezing, freeze and cloud and rain water within one time-step below -40
             IF(homofreeze .eq. 1.and.t(i,k).le.233.15.and.&
                real(itimestep)*dt.gt.ice_start_time)THEN
                IF(qr(i,k).ge.qsmall)THEN
@@ -2202,7 +2213,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       deltastr = min(max(deltastr,0.55),1.5)
   
       if(deltastr.ge.1.0)then   ! if columns, get c from c-a relation
-         cf = co*(anf/ao)**deltastr
+         cf = (ao**(1.-deltastr))*anf**deltastr
       endif
 
       phif = phii*(rnf**3/r**3)**((igr-1.)/(igr+2.)) ! if plates, get c from aspect ratio after deltat
@@ -2386,7 +2397,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       END IF
     END SUBROUTINE R_CHECK
 
-        SUBROUTINE COLL_LOOKUP(ni,an,cn,rho,agg,nagg)
+    SUBROUTINE COLL_LOOKUP(ni,an,cn,rho,agg,nagg)
 
       IMPLICIT NONE
       INTEGER :: i, j, k, l, m, n, flag

@@ -7,7 +7,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       REAL, PRIVATE ::  rhoi    !BULK DENSITY OF CLOUD ICE
       REAL, PRIVATE ::  nu      !DISTRIBUTION SHAPE FACTOR, ICE
-      REAL, PRIVATE ::  nus     !DISTRIBUTION SHAPE FACTOR, SNOW
+      !REAL, PRIVATE ::  nus     !DISTRIBUTION SHAPE FACTOR, SNOW
       REAL, PRIVATE ::  nuc     !ICE NUCLEATION CONCENTRAION (#/L)
       REAL, PRIVATE ::  rd      !GAS CONSTANT OF DRY AIR
       REAL, PRIVATE ::  cp      !SPECIFIC HEAT FOR DRY AIR (CONST P)
@@ -91,7 +91,7 @@ CONTAINS
       rhoi = 920.
 !     rhoi = 500.
       nu = 4.
-      nus = 4.
+      !nus = 4.
       nuc = 10.
       rd = 287.15
       cp = 1005.
@@ -591,6 +591,8 @@ CONTAINS
       ids,ide,jds,jde,kds,kde,&
       itimestep, nhrs
 
+      INTEGER, SAVE :: nus = 4
+
       REAL, DIMENSION(its:ite,kts:kte) :: &
       qv, qc, qr, qs, qg, qi, nc, nr, ns, ng, ni, ai, ci, as, cs, t
  
@@ -773,7 +775,7 @@ CONTAINS
       redden     = 0            !reduces density of spheres
       homofreeze = 1            !homogeneous freezing
       snow_on    = 1            !ice --> snow & aggregation
-      snowflag   = 0            !snow calculations, 0 = all snow off, 1 = only old snow, 2 = only new snow
+      snowflag   = 2            !snow calculations, 0 = all snow off, 1 = only old snow, 2 = only new snow
       SEDON      = 1            !sedimentation
       EVOLVE_ON  = 1            !depositional growth
       RAINON     = 2            !0==all rain off; 1==basic processes on; 2==all rain processes
@@ -1018,7 +1020,7 @@ CONTAINS
                qg(i,k).lt.qsmall)THEN
                IF((temp.lt.273.15.and.qvqvsi.lt.FUDGE).or.&
                   (temp.ge.273.15.and.qvqvs.lt.FUDGE))THEN
-                  !print*,'there is no condensate'
+                  Print*,'Time = ', itimestep, 'there is no condensate'
                   GOTO 200
                END IF
             END IF
@@ -2119,6 +2121,33 @@ CONTAINS
             ELSE IF(snowflag.eq.2)THEN
                 CALL COLL_LOOKUP(ni(i,k),ani,cni,rhobar,agg,nagg,aagg,anagg,cnagg)
 
+                ns_new = nagg*dt/rho(i,k)
+                ans_new = anagg*1.e-6
+                cns_new = cnagg*1.e-6
+                as_new = aagg*1.e-6*ns_new
+                
+                frac = 0.
+                if(ns(i,k)+ns_new.gt.qsmall) frac = ns(i,k)/(ns(i,k)+ns_new)
+                
+                qs(i,k) = qs(i,k) + agg*dt/rho(i,k)
+                ns(i,k) = ns(i,k) + nagg*dt/rho(i,k)
+                as(i,k) = as(i,k)*frac + as_new*(1.-frac)
+                ans = ans*frac +  ans_new*(1.-frac)
+                cns = cns*frac +  cns_new*(1.-frac)
+                if(ans.gt.0.)cs(i,k) = as(i,k)*cns/ans
+                nus = as(i,k)/(ns(i,k)*ans)
+                
+                qi(i,k) = qi(i,k) - agg*dt/rho(i,k)
+                ni(i,k) = ni(i,k) - nagg*dt/rho(i,k)
+                
+                IF(qi(i,k).gt.qsmall.and.ni(i,k).gt.qsmall)THEN
+                   ani = ((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
+                        exp(gammln(nu+betam))))**(1./betam)
+                   cni=co*(ani/ao)**deltastr
+                   ci(i,k)=nu*ni(i,k)*cni
+                   ai(i,k)=nu*ni(i,k)*ani  
+                END IF
+
             END IF!snowflag
 !..................................................................
 !     now update qi, ni, ai, and ci due to ice nucleation
@@ -2431,6 +2460,17 @@ CONTAINS
                ci(i,k) = cni**2*ani*nu*ni(i,k)
             END IF
             rhoice(i,k)=rhobar
+            phi(i,k)=cni/ani
+
+            IF(qs(i,k) .gt. qsmall)THEN
+               ans = as(i,k)/(ns(i,k)*nus)
+               cns = cs(i,k)/(ns(i,k)*nus)
+
+               as(i,k) = ans**2*cns*nus*ns(i,k)
+               cs(i,k) = cns**2*ans*nus*ns(i,k)
+            END IF
+            rhos(i,k)=rhobars
+            phis(i,k)=cns/ans
 
          END DO !end k
 

@@ -67,8 +67,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       REAL, PRIVATE :: coll_ni(5), coll_an(4), coll_cn(4), coll_nu(8), coll_rho(9)
       REAL, PRIVATE :: coll(5,4,4,8,9), ncoll(5,4,4,8,9)
-      REAL, PRIVATE :: acoll_phi(50), acoll_r(28)
-      REAL, PRIVATE :: acoll_a(50,28), acoll_an(50,28), acoll_cn(50,28)
+      REAL, PRIVATE :: coll_phi(50), coll_r(28)
+      REAL, PRIVATE :: acoll(50,28), ancoll(50,28), cncoll(50,28)
       INTEGER, PRIVATE :: ii, jj, kk, ll, mm, nn, oo, iii, jjj, kkk, lll, mmm, nnn, ooo
       
       
@@ -164,11 +164,11 @@ MODULE MODULE_MP_SULIAHARRINGTON
       CLOSE(1)
 
       OPEN(1,FILE="ACOLL.bin",form='unformatted')!!Lookup table for aggregation a, an, and cn
-      READ(1) (acoll_phi(nn),nn=1,nnn) !phi = 0.01 --> 100.0 logarithmically spaced
-      READ(1) (acoll_r(oo),oo=1,ooo)   !r = 1 -> 10, 20 -> 100, 200 -> 1000 microns
-      READ(1) ((acoll_a(nn,oo),nn=1,nnn),oo=1,ooo)  !a_avg
-      READ(1) ((acoll_an(nn,oo),nn=1,nnn),oo=1,ooo) !an
-      READ(1) ((acoll_cn(nn,oo),nn=1,nnn),oo=1,ooo) !cn
+      READ(1) (coll_phi(nn),nn=1,nnn) !phi = 0.01 --> 100.0 logarithmically spaced
+      READ(1) (coll_r(oo),oo=1,ooo)   !r = 1 -> 10, 20 -> 100, 200 -> 1000 microns
+      READ(1) ((acoll(nn,oo),nn=1,nnn),oo=1,ooo)  !a_avg
+      READ(1) ((ancoll(nn,oo),nn=1,nnn),oo=1,ooo) !an
+      READ(1) ((cncoll(nn,oo),nn=1,nnn),oo=1,ooo) !cn
       CLOSE(1)
 
     END SUBROUTINE SULIAHARRINGTON_INIT
@@ -384,7 +384,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       REAL nsmltr               !change in n melting snow to rain
       REAL prds, eprds          !change in q deposition/sublimation snow
       REAL nsubr, nsubs         !loss of nr,ns during evap,sub
-      REAL agg, nagg, nsagg, nragg !change in q and n aggregation
+      REAL agg, nagg, aagg, anagg, cnagg, nsagg, nragg !change in q and n aggregation
       REAL nnew, prd1
 
 !     ice characteristics
@@ -569,6 +569,9 @@ MODULE MODULE_MP_SULIAHARRINGTON
             prci = 0.
             agg = 0.
             nagg = 0.
+            aagg = 0.
+            anagg = 0.
+            cnagg = 0.
             nsagg = 0.
             nragg = 0.
             psmlt = 0.
@@ -1274,7 +1277,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
                END IF
 
             ELSE IF(snowflag.eq.2)THEN
-               CALL COLL_LOOKUP(ni(i,k),ani,cni,rhobar,agg,nagg)     
+               CALL COLL_LOOKUP(ni(i,k),ani,cni,rhobar,agg,nagg,aagg,anagg,cnagg)
+               
             END IF!snowflag
             
 !..................................................................
@@ -1407,7 +1411,6 @@ MODULE MODULE_MP_SULIAHARRINGTON
             IF(snowflag .eq. 1)THEN
                qs(i,k) = qs(i,k)+(-pracs+psmlt+evpms+prds+eprds)*dt
                ns(i,k) = ns(i,k)+(nsagg+nsubs+nsmlts)*dt
-               print*,-pracs,psmlt,evpms,prds,eprds,nsagg,nsubs,nsmlts
             END IF
             qv(i,k)=qv(i,k)+(-pre-evpms-prds-eprds)*dt
             temp=temp+(xxlv*pre+(evpms+prds+eprds)*xxls+&
@@ -2397,27 +2400,47 @@ MODULE MODULE_MP_SULIAHARRINGTON
       END IF
     END SUBROUTINE R_CHECK
 
-    SUBROUTINE COLL_LOOKUP(ni,an,cn,rho,agg,nagg)
+    SUBROUTINE COLL_LOOKUP(ni,an,cn,rho,agg,nagg,aagg,anagg,cnagg)
 
       IMPLICIT NONE
-      INTEGER :: i, j, k, l, m, n, flag
-      REAL :: wght_ni, wght_an, wght_cn, wght_nu, wght_rho, x
+      INTEGER :: i, j, k, l, m, n, o, flag
+      INTEGER :: si, sj, sk, sl, sm, sn, so
+      REAL :: phi, rn
+      REAL :: wt_ni, wt_an, wt_cn, wt_nu, wt_rho, wt_phi, wt_rn
       REAL, INTENT(IN) :: ni, an, cn, rho
-      REAL, INTENT(OUT) :: agg, nagg
+      REAL, INTENT(OUT) :: agg, nagg, aagg, anagg, cnagg
 
+      phi = cn/an
+      rn = (an**2*cn)**(1./3.)
+
+      si = size(coll_ni)
+      sj = size(coll_an)
+      sk = size(coll_cn)
+      sl = size(coll_nu)
+      sm = size(coll_rho)
+      sn = size(coll_phi)
+      so = size(coll_r)
      
-      CALL ITERATE_LOOKUP(coll_ni,  ni,  size(coll_ni),  wght_ni,  i)
-      CALL ITERATE_LOOKUP(coll_an,  an,  size(coll_an),  wght_an,  j)
-      CALL ITERATE_LOOKUP(coll_cn,  cn,  size(coll_cn),  wght_cn,  k)
-      CALL ITERATE_LOOKUP(coll_nu,  nu,  size(coll_nu),  wght_nu,  l)
-      CALL ITERATE_LOOKUP(coll_rho, rho, size(coll_rho), wght_rho, m)
+      CALL ITERATE_LOOKUP(coll_ni,  ni,  si,  wt_ni,  i)
+      CALL ITERATE_LOOKUP(coll_an,  an,  sj,  wt_an,  j)
+      CALL ITERATE_LOOKUP(coll_cn,  cn,  sk,  wt_cn,  k)
+      CALL ITERATE_LOOKUP(coll_nu,  nu,  sl,  wt_nu,  l)
+      CALL ITERATE_LOOKUP(coll_rho, rho, sm,  wt_rho, m)
+      CALL ITERATE_LOOKUP(coll_phi, phi, sn,  wt_phi, n)
+      CALL ITERATE_LOOKUP(coll_r,   rn,  so,  wt_rn,  o)
 
+      CALL WGHTED_LOOKUP5D(i,j,k,l,m,si,sj,sk,sl,sm,wt_ni,wt_an,wt_cn,wt_nu,wt_rho,coll,agg)
+      CALL WGHTED_LOOKUP5D(i,j,k,l,m,si,sj,sk,sl,sm,wt_ni,wt_an,wt_cn,wt_nu,wt_rho,ncoll,nagg)
 
-      CALL WGHTED_LOOKUP(i,j,k,l,m,wght_ni,wght_an,wght_cn,wght_nu,wght_rho,coll,agg)
-      CALL WGHTED_LOOKUP(i,j,k,l,m,wght_ni,wght_an,wght_cn,wght_nu,wght_rho,ncoll,nagg)
+      CALL WGHTED_LOOKUP2D(n,o,sn,so,wt_phi,wt_rn,acoll,aagg)
+      CALL WGHTED_LOOKUP2D(n,o,sn,so,wt_phi,wt_rn,ancoll,anagg)
+      CALL WGHTED_LOOKUP2D(n,o,sn,so,wt_phi,wt_rn,cncoll,cnagg)
 
     END SUBROUTINE COLL_LOOKUP
 
+
+    !ITERATE_LOOKUP: THIS SUBROUTINE DETERMINES THE WEIGHTING BETWEEN TWO INDICES OF A
+    !PARTICULAR DIMENSION BASED ON THE LOOKUP TABLE VALUES AND THE MODELED VALUES
     SUBROUTINE ITERATE_LOOKUP(x,y,s,wght,i)
       
       IMPLICIT NONE
@@ -2429,27 +2452,53 @@ MODULE MODULE_MP_SULIAHARRINGTON
       
       flag = 0
       i = s  
-      DO n = 1, s
+      DO n = 1, s   !increment lookup table until lookup value >= modeled value
          if(x(n) .ge. y .and. flag .eq. 0)then
             i = n
             flag = 1
          end if
       END DO
       
-      if(i .gt. 1)then 
+      if(i .gt. 1)then                  !when the modeled value exsits w/in bounds of lookup
          wght = (x(i)-y)/(x(i)-x(i-1))
-      else if(i.eq.1)then
+      else if(i.eq.1)then               !when the modeled value <= the smallest lookup value
          wght = (x(i)-y)/(x(i)-0.0)
-      else if(i.eq.size(x).and.flag.eq.0)then
+      else if(i.eq.s.and.flag.eq.0)then !when the modeled value >= the largest lookup value
          wght = 0.0
       end if
       
     END SUBROUTINE ITERATE_LOOKUP
 
-    SUBROUTINE WGHTED_LOOKUP(i,j,k,l,m,wghti,wghtj,wghtk,wghtl,wghtm,x,y)
+
+    !!WGHTED_LOOKUP2D: THIS SUBROUTINE TAKES THE WEIGHTING OF A PARTICULR DIMENSION AND 
+    !AND DETERMINES THE LOOKUP TABLE-WEIGHTED VALUE BASED ON THE CHOSEN LOOKUP TABLE
+    !INDEX. THIS IS COMPLETED IN 2 DIMENSIONS FOR A 2D ARRAY.
+    SUBROUTINE WGHTED_LOOKUP2D(i,j,si,sj,wghti,wghtj,x,y)
       IMPLICIT NONE
-      INTEGER, INTENT(IN) :: i,j,k,l,m
-      REAL, INTENT(IN) :: wghti,wghtj,wghtk,wghtl,wghtm,x(5,4,4,8,9)
+      INTEGER, INTENT(IN) :: i,j,si,sj
+      REAL, INTENT(IN) :: wghti,wghtj,x(si,sj)
+      REAL, INTENT(OUT) :: y
+      REAL tmpi1,tmpi2,tmpj
+
+      !i1 = wght i at j1
+      !i2 = wght i at j2
+      tmpi1 = x(i-1,j-1)*wghti + x(i,j-1)*(1.-wghti) !i wght
+      tmpi2 = x(i-1,j)*wghti + x(i,j)*(1.-wghti)     !i wght
+         
+      !i-wghted j
+      tmpj = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
+
+      y = tmpj
+
+    END SUBROUTINE WGHTED_LOOKUP2D
+
+    !!WGHTED_LOOKUP5D: THIS SUBROUTINE TAKES THE WEIGHTING OF A PARTICULR DIMENSION AND 
+    !AND DETERMINES THE LOOKUP TABLE-WEIGHTED VALUE BASED ON THE CHOSEN LOOKUP TABLE
+    !INDEX. THIS IS COMPLETED IN 5 DIMENSIONS FOR A 5D ARRAY.
+    SUBROUTINE WGHTED_LOOKUP5D(i,j,k,l,m,si,sj,sk,sl,sm,wghti,wghtj,wghtk,wghtl,wghtm,x,y)
+      IMPLICIT NONE
+      INTEGER, INTENT(IN) :: i,j,k,l,m,si,sj,sk,sl,sm
+      REAL, INTENT(IN) :: wghti,wghtj,wghtk,wghtl,wghtm,x(si,sj,sk,sl,sm)
       REAL, INTENT(OUT) :: y
       REAL tmpi1,tmpi2,tmpj1,tmpj2,tmpk1,tmpk2,tmpl1,tmpl2,tmpm
 
@@ -2566,7 +2615,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       y = tmpm
 
-    END SUBROUTINE WGHTED_LOOKUP
+    END SUBROUTINE WGHTED_LOOKUP5D
 
 
 !------------------------------------------------------------------

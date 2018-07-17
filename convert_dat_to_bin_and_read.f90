@@ -8,7 +8,7 @@
         real :: n(ii),a(jj),c(kk),nn(ll),r(mm)
         real :: co(ii,jj,kk,ll,mm),nco(ii,jj,kk,ll,mm)
 
-        open(9,file='COLL.dat')
+        open(9,file='COLLV2.dat')
         do i=1,ii
            do j=1,jj
               do k=1,kk

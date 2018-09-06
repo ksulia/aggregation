@@ -67,8 +67,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       REAL, PRIVATE :: coll_ni(5), coll_an(4), coll_cn(4), coll_nu(8), coll_rho(9)
       REAL, PRIVATE :: coll(5,4,4,8,9), ncoll(5,4,4,8,9)
-      REAL, PRIVATE :: coll_phi(50), coll_r(28)
-      REAL, PRIVATE :: acoll(50,28), ancoll(50,28), cncoll(50,28)
+      REAL, PRIVATE :: coll_phi(50), coll_r(27)
+      REAL, PRIVATE :: acoll(50,27), ancoll(50,27), cncoll(50,27), ddcoll(50,27)
       INTEGER, PRIVATE :: ii, jj, kk, ll, mm, nn, oo, iii, jjj, kkk, lll, mmm, nnn, ooo
       
       
@@ -83,7 +83,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       !     rhoi = 500.
       nu = 4.
       !nus = 4.
-      nuc = 10.
+      nuc = 1.
       rd = 287.15
       cp = 1005.
       cpw = 4187.
@@ -151,9 +151,9 @@ MODULE MODULE_MP_SULIAHARRINGTON
       lll = 8
       mmm = 9
       nnn = 50
-      ooo = 28
+      ooo = 27
 
-      OPEN(1,FILE="COLL.bin",form='unformatted')!!Lookup table for aggregation mass and number
+      OPEN(1,FILE="COLLV2.bin",form='unformatted')!!Lookup table for aggregation mass and number
       READ(1) (coll_ni(ii),ii=1,iii) !ni = 1, 10, 100, 1000, 10000 L-1
       READ(1) (coll_an(jj),jj=1,jjj) !an = 1, 10, 100, 1000, 10000 um
       READ(1) (coll_cn(kk),kk=1,kkk) !cn = 1, 10, 100, 1000, 10000 um
@@ -163,16 +163,16 @@ MODULE MODULE_MP_SULIAHARRINGTON
       READ(1) (((((ncoll(ii,jj,kk,ll,mm),ii=1,iii),jj=1,jjj),kk=1,kkk),ll=1,lll),mm=1,mmm)
       CLOSE(1)
 
-      OPEN(1,FILE="ACOLL.bin",form='unformatted')!!Lookup table for aggregation a, an, and cn
+      OPEN(1,FILE="ACOLLdd.bin",form='unformatted')!!Lookup table for aggregation a, an, and cn
       READ(1) (coll_phi(nn),nn=1,nnn) !phi = 0.01 --> 100.0 logarithmically spaced
       READ(1) (coll_r(oo),oo=1,ooo)   !r = 1 -> 10, 20 -> 100, 200 -> 1000 microns
       READ(1) ((acoll(nn,oo),nn=1,nnn),oo=1,ooo)  !a_avg
       READ(1) ((ancoll(nn,oo),nn=1,nnn),oo=1,ooo) !an
       READ(1) ((cncoll(nn,oo),nn=1,nnn),oo=1,ooo) !cn
+      READ(1) ((ddcoll(nn,oo),nn=1,nnn),oo=1,ooo) !delta density
       CLOSE(1)
 
     END SUBROUTINE SULIAHARRINGTON_INIT
-
 
     SUBROUTINE mp_suliaharrington(           &
          itimestep,th,                       &
@@ -245,6 +245,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
                CS2D(i,k) = CS(i,k,j) !"snow c-axis length-weighted volume mixing ratio" "m3 kg-1"
                T2D(i,k) = T(i,k,j)   !"temperature" "K"
 
+               RHOS2D(i,k) = RHOS(i,k,j)
+               
                ICEDEP2D(i,k) = ICEDEP(i,k,j)        !"ICE DEPOSITIONAL RATE MIXING RATIO" "kg kg-1s-1"
                ICESUB2D(i,k) = ICESUB(i,k,j)        !"ICE SUBLIMATIONAL RATE MIXING RATIO" "kg kg-1s-1"
                RAINEVAP2D(i,k) = RAINEVAP(i,k,j)    !"RAIN EVAPORATIONAL RATE MIXING RATIO" "kg kg-1s-1"
@@ -390,7 +392,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       REAL nsmltr               !change in n melting snow to rain
       REAL prds, eprds          !change in q deposition/sublimation snow
       REAL nsubr, nsubs         !loss of nr,ns during evap,sub
-      REAL agg, nagg, aagg, anagg, cnagg, nsagg, nragg !change in q and n aggregation
+      REAL agg, nagg, aagg, anagg, cnagg, nsagg, nragg, ddagg !change in q and n aggregation
       REAL nnew, prd1
 
 !     ice characteristics
@@ -410,7 +412,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       !snow characteristics (aggregate microphysics)
       REAL ans, cns, rns, rhobars, deltastrs, vs, swci, swcf, phisf, rnsf, &
            vtbarbs, vtbarbms, vtbarblens, ards, ansf, crds, cnsf, phiis, &
-           ans_new, cns_new, ns_new, as_new, frac
+           qs_new, ans_new, cns_new, ns_new, as_new, dd_new, frac
 
       REAL lammin, lammax, lamc, pgam
 
@@ -528,15 +530,15 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
             !SNOW (AGGREGATES)
             IF(snowflag .eq. 2.and.qs(i,k).gt.qsmall.and.ns(i,k).gt.qsmall)THEN               
- 			   ns(i,k) = max(ns(i,k),qsmall)
- 			   
-               if(cs(i,k).gt.0.0)ans = (as(i,k)/(cs(i,k)*nus*ns(i,k)))**(1./3.)*as(i,k)**(1./3.)
-               if(as(i,k).gt.0.0)cns = (cs(i,k)/(as(i,k)*nus*ns(i,k)))**(1./3.)*cs(i,k)**(1./3.)
+               ns(i,k) = max(ns(i,k),qsmall)
+               !print*,'AS IN1',as(i,k),cs(i,k),ans,cns,nus,ns(i,k)
+               if(cs(i,k).gt.0.0)ans = ((as(i,k)**2)/(cs(i,k)*nus*ns(i,k)))**(1./3.)
+               if(as(i,k).gt.0.0)cns = ((cs(i,k)**2)/(as(i,k)*nus*ns(i,k)))**(1./3.)
                as(i,k) = nus*ns(i,k)*ans
                cs(i,k) = nus*ns(i,k)*cns
-               
+               !print*,'AS IN2',as(i,k),cs(i,k),ans,cns,nus,ns(i,k)
             ELSE
-            	
+               rhos(i,k) = 920.
                qs(i,k) = 0.
                ns(i,k) = 0.
                as(i,k) = 0.
@@ -576,8 +578,11 @@ MODULE MODULE_MP_SULIAHARRINGTON
             aagg = 0.
             anagg = 0.
             cnagg = 0.
+            ddagg = 0.
             nsagg = 0.
             nragg = 0.
+            qagg = 0.
+            qnagg = 0.
             psmlt = 0.
             pracs = 0.
             evpms = 0.
@@ -592,16 +597,20 @@ MODULE MODULE_MP_SULIAHARRINGTON
             nssten(k) = 0.0
             nisten(k) = 0.0
             aisten(k) = 0.0
+            assten(k) = 0.0
+            cssten(k) = 0.0
             cisten(k) = 0.0
             qsum(i,k) = 0.0
             qiloss(k) = 0.0
             qrloss(k) = 0.0
             qcloss(k) = 0.0
-            qiloss2(k)=0.0
-            qcloss2(k)=0.0
-            qrloss2(k)=0.0
-            phi(i,k)=1.0
-            
+            qiloss2(k) = 0.0
+            qcloss2(k) = 0.0
+            qrloss2(k) = 0.0
+            phi(i,k) = 1.0
+            phis(i,k) = 1.0
+            cplx(i,k) = 0.0
+            cplxs(i,k) = 0.0
             
             vtbarbm = 0.;vtbarb = 0.;vtbarblen = 0.;
             vtbarbms = 0.;vtbarbs = 0.;vtbarblens = 0.;
@@ -615,6 +624,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
             deltastrs = 1.
             rhobar = 920.
             rhobars = 920.
+            !IF(real(itimestep)*dt
             If(redden .eq. 1) rhoi = 500.
             temp = t(i,k)
             celsius = temp-273.15
@@ -988,10 +998,11 @@ MODULE MODULE_MP_SULIAHARRINGTON
                ani = ai(i,k)/(nu*ni(i,k))
                cni = ci(i,k)/(nu*ni(i,k))
 
-               
+               !print*,'ice1',itimestep, rhobar
                !check that deltastr, rhobar, and rni are within reasonable bounds
-               CALL ICE_CHECKS(nu,ni(i,k),qi(i,k),ani,cni,rni,deltastr,rhobar,&
+               CALL ICE_CHECKS(1, nu,ni(i,k),qi(i,k),ani,cni,rni,deltastr,rhobar,&
                     iaspect,sphrflag,redden)
+               !print*,'ice2',itimestep, rhobar
 
                ci(i,k)=nu*ni(i,k)*cni
                ai(i,k)=nu*ni(i,k)*ani
@@ -1035,18 +1046,22 @@ MODULE MODULE_MP_SULIAHARRINGTON
                   
                   ans = as(i,k)/(nus*ns(i,k))
                   cns = cs(i,k)/(nus*ns(i,k))
-       
+                  !print*,'snow1',itimestep, rhos(i,k),qs(i,k),ns(i,k),ans,cns,nus,as(i,k),cs(i,k)
                   !check that deltastr, rhobar, and rni are within reasonable bounds
-                  CALL ICE_CHECKS(nus,ns(i,k),qs(i,k),ans,cns,rns,deltastrs,rhobars,&
-                       iaspect,sphrflag,redden)
-                  
+                  !CALL ICE_CHECKS(2, nus,ns(i,k),qs(i,k),ans,cns,rns,deltastrs,rhobars,&
+                  !     iaspect,sphrflag,redden)
+
+                  CALL DSTR_CHECK(2,nus,ns(i,k),ans,cns,deltastrs,iaspect,sphrflag)
+                      !CALL RHO_CHECK(flag,n,deltastr,qi,ni,ani,cni,sphrflag,redden,rhobar)
+                  CALL R_CHECK(nus,qs(i,k),ns(i,k),cns,ans,rns,rhos(i,k),deltastrs)
+                  !print*,'snow2',itimestep, rhos(i,k),deltastrs
                   cs(i,k)=nus*ns(i,k)*cns
                   as(i,k)=nus*ns(i,k)*ans
                   
                   !     get iwc to calculate iwc tendency
                   !     by substracting final and initial values
                   vs = 4./3.*pi*rns**3.*exp(gammln(nus+deltastrs+2.))/exp(gammln(nus)) 
-                  swci = ns(i,k)*rhobars*vs*rho(i,k)
+                  swci = ns(i,k)*rhos(i,k)*vs*rho(i,k)
                   
                   IF(iaspect .eq. 1) igr = .27
                   IF(sphrflag .eq. 1) igr=1.0
@@ -1059,7 +1074,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                      
                      CALL EVOLVE(nus,ans,nidum,sui,sup,qvv,temp,press,igr,dt,swcf,&
                           cnsf,swci,phiis,phisf,cns,rns,rnsf,ansf,deltastrs,mu,&
-                          rhobars,vtbarbs,vtbarbms,vtbarblens,rhoa,i,k,iaspect&
+                          rhos(i,k),vtbarbs,vtbarbms,vtbarblens,rhoa,i,k,iaspect&
                           ,ipart,sphrflag,redden,itimestep) 
                      
                      phis(i,k)=phisf
@@ -1199,13 +1214,13 @@ MODULE MODULE_MP_SULIAHARRINGTON
                      alphv=4./3.*pi*alphstr
                      betam=2.+deltastrs   
                      
-                     ans=((qs(i,k)*exp(gammln(nus+betam)))/(rhobars*ns(i,k)*alphv*&
+                     ans=((qs(i,k)*exp(gammln(nus+betam)))/(rhos(i,k)*ns(i,k)*alphv*&
                           exp(gammln(nus+betam))))**(1./betam)
                      
                      cns=co*(ans/ao)**deltastrs
                   END IF           ! iflag = 1
                   
-                  CALL R_CHECK(nus,qs(i,k),ns(i,k),cns,ans,rns,rhobars,deltastrs)
+                  CALL R_CHECK(nus,qs(i,k),ns(i,k),cns,ans,rns,rhos(i,k),deltastrs)
                
                   cs(i,k)=nus*ns(i,k)*cns
                   as(i,k)=nus*ns(i,k)*ans
@@ -1271,40 +1286,56 @@ MODULE MODULE_MP_SULIAHARRINGTON
             ELSE IF(snowflag.eq.2)THEN
                
                if(ni(i,k).gt.qsmall)then
-               		CALL COLL_LOOKUP(ni(i,k),ani,cni,rhobar,agg,nagg,aagg,anagg,cnagg)             
-			   
-               		ns_new = nagg*dt/rho(i,k)
-               		ans_new = anagg*1.e-6
-               		cns_new = cnagg*1.e-6
-               		as_new = aagg*1.e-6*ns_new
+                  
+                  CALL COLL_LOOKUP(ni(i,k),ani,cni,rhobar,agg,nagg,aagg,anagg,cnagg,ddagg)             
 
-               		frac = 0.
-               		if(ns(i,k)+ns_new.gt.qsmall) frac = ns(i,k)/(ns(i,k)+ns_new)
-
-               		qs(i,k) = qs(i,k) + agg*dt/rho(i,k)
-               		ns(i,k) = ns(i,k) + nagg*dt/rho(i,k)
-               		as(i,k) = as(i,k)*frac + as_new*(1.-frac)
-               		ans = ans*frac +  ans_new*(1.-frac)
-               		cns = cns*frac +  cns_new*(1.-frac)
-               		if(ans.gt.0.)cs(i,k) = as(i,k)*cns/ans
-               		!if(ns(i,k)*ans.gt.0.)nus = as(i,k)/(ns(i,k)*ans)
-              		
-               		CALL ICE_CHECKS(nus,ns(i,k),qs(i,k),ans,cns,rns,deltastrs,rhobars,&
-                       iaspect,sphrflag,redden)
-                    
-                    phis(i,k) = cns/ans
-                    
-               		qi(i,k) = qi(i,k) - agg*dt/rho(i,k)
-               		ni(i,k) = ni(i,k) - nagg*dt/rho(i,k)
-
-               		IF(qi(i,k).gt.qsmall)THEN
-                		ani = ((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
-                		     exp(gammln(nu+betam))))**(1./betam)
-                		cni=co*(ani/ao)**deltastr
-                		ci(i,k)=nu*ni(i,k)*cni
-                		ai(i,k)=nu*ni(i,k)*ani  
-               		END IF
-               	end if
+                  qs_new = agg*dt/rho(i,k)
+                  ns_new = nagg*dt/rho(i,k)
+                  
+                  if(qs(i,k)+qs_new.gt.qsmall.and.ns(i,k)+ns_new.gt.qsmall)then
+                     !print*,'NEW SNOW',qs_new,ns_new,qs(i,k),ns(i,k)
+                     ans_new = anagg*1.e-6
+                     cns_new = cnagg*1.e-6
+                     as_new = aagg*1.e-6*ns_new
+                     dd_new = ddagg*rhobars
+                     !print*,'SIZE1',ans_new,ans,as_new,as(i,k)
+                     frac = 0.
+                     if(ns(i,k)+ns_new.gt.qsmall) frac = ns(i,k)/(ns(i,k)+ns_new)
+                     if(qs(i,k)+agg*dt/rho(i,k).gt.qsmall) frac = qs(i,k)/(qs(i,k)+agg*dt/rho(i,k))
+                  
+                     qs(i,k) = qs(i,k) + qs_new
+                     ns(i,k) = ns(i,k) + ns_new
+                     as(i,k) = as(i,k)*frac + as_new*(1.-frac)
+                     ans = ans*frac +  ans_new*(1.-frac)
+                     cns = cns*frac +  cns_new*(1.-frac)
+                     !print*,'rho1',rhos(i,k),dd_new,ans_new,as(i,k),cns_new,cs(i,k)
+                     rhos(i,k) = rhos(i,k)*frac + dd_new*(1.-frac)
+                     
+                     if(ans.gt.0.)cs(i,k) = as(i,k)*cns/ans
+                     if(ns(i,k)*ans.gt.0.)nus = max(as(i,k)/(ns(i,k)*ans),1.)
+                     !print*,'rho2',rhos(i,k),dd_new,ans_new,as(i,k),cns_new,cs(i,k),nus
+                     !print*,'SIZE2',ans_new,ans,as_new,as(i,k)
+                     !print*,nus,as(i,k),ns(i,k),ans
+                     !CALL ICE_CHECKS(2,nus,ns(i,k),qs(i,k),ans,cns,rns,deltastrs,rhobars,&
+                     !     iaspect,sphrflag,redden)
+                      CALL DSTR_CHECK(2,nus,ns(i,k),ans,cns,deltastrs,iaspect,sphrflag)
+                      !CALL RHO_CHECK(flag,n,deltastr,qi,ni,ani,cni,sphrflag,redden,rhobar)
+                      CALL R_CHECK(nus,qs(i,k),ns(i,k),cns,ans,rns,rhos(i,k),deltastrs)
+                     
+                     !phis(i,k) = cns/ans
+                     
+                     qi(i,k) = qi(i,k) - agg*dt/rho(i,k)
+                     ni(i,k) = ni(i,k) - nagg*dt/rho(i,k)
+                     
+                     IF(qi(i,k).gt.qsmall)THEN
+                        ani = ((qi(i,k)*gammnu)/(rhobar*ni(i,k)*alphv*&
+                             exp(gammln(nu+betam))))**(1./betam)
+                        cni=co*(ani/ao)**deltastr
+                        ci(i,k)=nu*ni(i,k)*cni
+                        ai(i,k)=nu*ni(i,k)*ani  
+                     END IF
+                  end if
+               end if
             END IF!snowflag
             qagg(i,k) = agg/rho(i,k)
             qnagg(i,k) = nagg/rho(i,k)
@@ -1339,8 +1370,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
                ani=ai(i,k)/(nu*ni(i,k))
                cni=ci(i,k)/(nu*ni(i,k))
 
-               CALL DSTR_CHECK(nu,ni(i,k),ani,cni,deltastr,iaspect,sphrflag)
-               CALL RHO_CHECK(nu,deltastr,qi(i,k),ni(i,k),ani,cni,sphrflag,redden,rhobar)
+               CALL DSTR_CHECK(1,nu,ni(i,k),ani,cni,deltastr,iaspect,sphrflag)
+               CALL RHO_CHECK(1,nu,deltastr,qi(i,k),ni(i,k),ani,cni,sphrflag,redden,rhobar)
                ci(i,k)=nu*ni(i,k)*cni
                ai(i,k)=nu*ni(i,k)*ani
          
@@ -1366,8 +1397,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
                qs(i,k)=0.
                ns(i,k)=0.
                IF(snowflag.eq.2)then
-               		as(i,k) = 0.0
-               		cs(i,k) = 0.0
+                  as(i,k) = 0.0
+                  cs(i,k) = 0.0
                	END IF
             END IF
 !     get fallspeed parameters
@@ -1410,7 +1441,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
             IF(qi(i,k).gt.qsmall.and.ni(i,k).gt.qsmall) THEN
 
 !     limit fallspeed to 5 m/s
-			   vtrms(i,k)=max(min(vtbarbms,5.),0.)
+               vtrms(i,k)=max(min(vtbarbms,5.),0.)
                vtrns(i,k)=max(min(vtbarbs,5.),0.)
                vtrls(i,k)=max(min(vtbarblens,5.),0.)
 
@@ -1445,7 +1476,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
 				   phis(i,k)=1.
 				   ans=0.
 				   cns=0.
-				   rhobars=920.
+				   rhos(i,k)=920.
 				END IF
             END IF
             IF(iaspect .eq. 1) phii = 0.27
@@ -1585,11 +1616,12 @@ MODULE MODULE_MP_SULIAHARRINGTON
             IF(qs(i,k) .gt. qsmall)THEN
                ans = as(i,k)/(ns(i,k)*nus)
                cns = cs(i,k)/(ns(i,k)*nus)
-
+               !print*,'AS OUT1',as(i,k),cs(i,k),ans,cns,nus,ns(i,k)
                as(i,k) = ans**2*cns*nus*ns(i,k)
                cs(i,k) = cns**2*ans*nus*ns(i,k)
+               !print*,'AS OUT2',as(i,k),cs(i,k),ans,cns,nus,ns(i,k)
             END IF
-            rhos(i,k)=rhobars
+            !rhos(i,k)=rhobars
          END DO
          IF(LTRUE.eq.0)GOTO 400
 !     SEDIMENTATION --------------------------------------------------------------
@@ -1663,17 +1695,17 @@ MODULE MODULE_MP_SULIAHARRINGTON
                    fns(k) = 0.
                 END IF
              ELSE IF(snowflag.eq.2)THEN
-				 IF(qs(i,k).ge.qsmall)THEN
-				   fs(k) = vtrms(i,k)
-				   fns(k) = vtrns(i,k)
-				   fas(k) = vtrms(i,k)
-				   fcs(k) = vtrms(i,k)
-				ELSE
-				   fs(k) = 0.0
-				   fns(k) = 0.0
-				   fas(k) = 0.0
-				   fcs(k) = 0.0
-				END IF
+                IF(qs(i,k).ge.qsmall)THEN
+                   fs(k) = vtrms(i,k)
+                   fns(k) = vtrns(i,k)
+                   fas(k) = vtrms(i,k)
+                   fcs(k) = vtrms(i,k)
+                ELSE
+                   fs(k) = 0.0
+                   fns(k) = 0.0
+                   fas(k) = 0.0
+                   fcs(k) = 0.0
+                END IF
              END IF!snowflag
 
 !modify fallspeed below level of precip
@@ -1711,8 +1743,9 @@ MODULE MODULE_MP_SULIAHARRINGTON
             dumns(k) = ns(i,k)*rho(i,k)
             dumas(k) = as(i,k)*rho(i,k) !unitless (as is volume now)
             dumcs(k) = cs(i,k)*rho(i,k) !unitless (cs is volume now)
+            !print*,'dums',dumas(k),dumcs(k),as(i,k),cs(i,k),rho(i,k),fas(k),fcs(k)
          END DO
-
+        
          DO n = 1, nstep
             DO k = kts,kte
                fallouti(k) = fi(k)*dumi(k) !kgm^-2 s^-1
@@ -1852,7 +1885,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
                ci(i,k) = 0.
                qiloss(k) = 0.
             END IF
-           
+           !if(qs(i,k).gt.qsmall)print*,'End',as(i,k),cs(i,k),assten(k),cssten(k),qs(i,k),ns(i,k)
             IF(qr(i,k) .lt. qsmall)THEN
                qr(i,k) = 0.
                nr(i,k) = 0.
@@ -1925,6 +1958,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
             END IF!snowflag
 
          END DO
+         
 
  400     CONTINUE
       END DO     
@@ -2349,24 +2383,24 @@ MODULE MODULE_MP_SULIAHARRINGTON
     !EQUIVALENT VOL RADIUS AND SUBSEQUENTLY PERFORMS LIMIT
     !CHECKS.
     !********************************************************
-    SUBROUTINE ICE_CHECKS(n,ni,qi,ani,cni,rni,deltastr,rhobar,iaspect,&
+    SUBROUTINE ICE_CHECKS(flag,n,ni,qi,ani,cni,rni,deltastr,rhobar,iaspect,&
          sphrflag,redden)
                  
       IMPLICIT NONE
-      INTEGER iaspect, sphrflag, redden
+      INTEGER iaspect, sphrflag, redden, flag
       REAL qi, ni, ani, cni, rni, deltastr, rhobar, n
       
-      CALL DSTR_CHECK(n,ni,ani,cni,deltastr,iaspect,sphrflag)
-      CALL RHO_CHECK(n,deltastr,qi,ni,ani,cni,sphrflag,redden,rhobar)
+      CALL DSTR_CHECK(flag,n,ni,ani,cni,deltastr,iaspect,sphrflag)
+      CALL RHO_CHECK(flag,n,deltastr,qi,ni,ani,cni,sphrflag,redden,rhobar)
       CALL R_CHECK(n,qi,ni,cni,ani,rni,rhobar,deltastr)
                  
 
     END SUBROUTINE ICE_CHECKS
 
-    SUBROUTINE DSTR_CHECK(n,ni,ani,cni,deltastr,iaspect,sphrflag)
+    SUBROUTINE DSTR_CHECK(flag,n,ni,ani,cni,deltastr,iaspect,sphrflag)
       
       IMPLICIT NONE
-      INTEGER :: iaspect,sphrflag
+      INTEGER :: iaspect,sphrflag,flag
       REAL ::  ani, cni, deltastr, voltmp, ai, ci, ni, gn, n
 
       !     get deltastr from cni and ani
@@ -2381,7 +2415,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
          deltastr = 1.
       ENDIF
       
-      
+      !IF(flag.eq.2)print*,'DELTASTR',deltastr,cni,co,ani,ao
       IF(iaspect .eq. 1) deltastr = 0.8
       IF(sphrflag .eq. 1) deltastr = 1.0
       
@@ -2411,9 +2445,9 @@ MODULE MODULE_MP_SULIAHARRINGTON
       
     END SUBROUTINE DSTR_CHECK
 
-    SUBROUTINE RHO_CHECK(n,deltastr,qi,ni,ani,cni,sphrflag,redden,rhobar)
+    SUBROUTINE RHO_CHECK(flag,n,deltastr,qi,ni,ani,cni,sphrflag,redden,rhobar)
       IMPLICIT NONE
-      INTEGER sphrflag, redden
+      INTEGER sphrflag, redden, flag
       REAL deltastr, qi, ni, ani, cni, n, gn
       REAL alphstr, alphv, betam
       REAL rhobar
@@ -2428,6 +2462,9 @@ MODULE MODULE_MP_SULIAHARRINGTON
                
       rhobar = qi*gn/(ni*alphv* &
            ani**betam*exp(gammln(n+betam)))
+
+      !if(flag.eq.2)print*,'RHO',rhobar,qi,gn,ni,alphv,ani,deltastr,betam,exp(gammln(n+betam)),(ni*alphv* &
+      !     ani**betam*exp(gammln(n+betam))),qi*gn
                
       IF(sphrflag.eq.1) rhobar = 920.
       If(redden .eq. 1) rhoi = 500.
@@ -2493,7 +2530,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       END IF
     END SUBROUTINE R_CHECK
 
-    SUBROUTINE COLL_LOOKUP(ni,an,cn,rho,agg,nagg,aagg,anagg,cnagg)
+    SUBROUTINE COLL_LOOKUP(ni,an,cn,rho,agg,nagg,aagg,anagg,cnagg,ddagg)
 
       IMPLICIT NONE
       INTEGER :: i, j, k, l, m, n, o, flag
@@ -2501,7 +2538,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       REAL :: phi, rn
       REAL :: wt_ni, wt_an, wt_cn, wt_nu, wt_rho, wt_phi, wt_rn
       REAL, INTENT(IN) :: ni, an, cn, rho
-      REAL, INTENT(OUT) :: agg, nagg, aagg, anagg, cnagg
+      REAL, INTENT(OUT) :: agg, nagg, aagg, anagg, cnagg, ddagg
 
       phi = cn/an
       rn = (an**2*cn)**(1./3.)*1.e6
@@ -2528,6 +2565,7 @@ MODULE MODULE_MP_SULIAHARRINGTON
       CALL WGHTED_LOOKUP2D(n,o,sn,so,wt_phi,wt_rn,acoll,aagg)
       CALL WGHTED_LOOKUP2D(n,o,sn,so,wt_phi,wt_rn,ancoll,anagg)
       CALL WGHTED_LOOKUP2D(n,o,sn,so,wt_phi,wt_rn,cncoll,cnagg)
+      CALL WGHTED_LOOKUP2D(n,o,sn,so,wt_phi,wt_rn,ddcoll,ddagg)
       
     END SUBROUTINE COLL_LOOKUP
 

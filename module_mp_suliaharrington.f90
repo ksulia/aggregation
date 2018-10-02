@@ -1287,7 +1287,8 @@ MODULE MODULE_MP_SULIAHARRINGTON
                
                if(ni(i,k).gt.qsmall)then
                   
-                  CALL COLL_LOOKUP(ni(i,k),ani,cni,rhobar,agg,nagg,aagg,anagg,cnagg,ddagg)             
+                  nidum = ni(i,k)*rho(i,k)/1000.
+                  CALL COLL_LOOKUP(nidum,ani,cni,rhobar,agg,nagg,aagg,anagg,cnagg,ddagg)             
 
                   qs_new = agg*dt/rho(i,k)
                   ns_new = nagg*dt/rho(i,k)
@@ -2609,10 +2610,23 @@ MODULE MODULE_MP_SULIAHARRINGTON
       INTEGER, INTENT(IN) :: i,j,si,sj
       REAL, INTENT(IN) :: wghti,wghtj,x(si,sj)
       REAL, INTENT(OUT) :: y
-      REAL tmpi1,tmpi2,tmpj
+      REAL tmpi1,tmpi2,tmpj,x1,x2,x3,x4
 
       !i1 = wght i at j1
       !i2 = wght i at j2
+
+      x1 = x(i-1,j-1)
+      x2 = x(i,  j-1)
+      x3 = x(i-1,j  )
+      x4 = x(i,  j  )
+       if(i.eq.1)then
+         x1 = 0
+         x3 = 0
+      else if(j.eq.1)then
+         x1 = 0
+         x2 = 0
+      end if
+      
       tmpi1 = x(i-1,j-1)*wghti + x(i,j-1)*(1.-wghti) !i wght
       tmpi2 = x(i-1,j)*wghti + x(i,j)*(1.-wghti)     !i wght
          
@@ -2626,17 +2640,25 @@ MODULE MODULE_MP_SULIAHARRINGTON
     !!WGHTED_LOOKUP5D: THIS SUBROUTINE TAKES THE WEIGHTING OF A PARTICULR DIMENSION AND 
     !AND DETERMINES THE LOOKUP TABLE-WEIGHTED VALUE BASED ON THE CHOSEN LOOKUP TABLE
     !INDEX. THIS IS COMPLETED IN 5 DIMENSIONS FOR A 5D ARRAY.
+
     SUBROUTINE WGHTED_LOOKUP5D(i,j,k,l,m,si,sj,sk,sl,sm,wghti,wghtj,wghtk,wghtl,wghtm,x,y)
       IMPLICIT NONE
       INTEGER, INTENT(IN) :: i,j,k,l,m,si,sj,sk,sl,sm
       REAL, INTENT(IN) :: wghti,wghtj,wghtk,wghtl,wghtm,x(si,sj,sk,sl,sm)
       REAL, INTENT(OUT) :: y
       REAL tmpi1,tmpi2,tmpj1,tmpj2,tmpk1,tmpk2,tmpl1,tmpl2,tmpm
+      REAL x1,x2,x3,x4
 
       !i1 = wght i at j1,k1,l1,m1
       !i2 = wght i at j2,k1,l1,m1
-      tmpi1 = x(i-1,j-1,k-1,l-1,m-1)*wghti + x(i,j-1,k-1,l-1,m-1)*(1.-wghti) !i wght
-      tmpi2 = x(i-1,j,k-1,l-1,m-1)*wghti + x(i,j,k-1,l-1,m-1)*(1.-wghti)     !i wght
+
+      x1 = get_x(i-1,j-1,k-1,l-1,m-1,si,sj,sk,sl,sm,x)
+      x2 = get_x(i,  j-1,k-1,l-1,m-1,si,sj,sk,sl,sm,x)
+      x3 = get_x(i-1,j,  k-1,l-1,m-1,si,sj,sk,sl,sm,x)
+      x4 = get_x(i,  j,  k-1,l-1,m-1,si,sj,sk,sl,sm,x)
+
+      tmpi1 = x1*wghti + x2*(1.-wghti) !i wght
+      tmpi2 = x3*wghti + x4*(1.-wghti)     !i wght
          
       !j1 = i-wghted j at k1,l1,m1
       tmpj1 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
@@ -2645,8 +2667,14 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       !i1 = wght i at j1,k2,l1,m1
       !i2 = wght i at j2,k2,l1,m1
-      tmpi1 = x(i-1,j-1,k,l-1,m-1)*wghti + x(i,j-1,k,l-1,m-1)*(1.-wghti)!i wght
-      tmpi2 = x(i-1,j,k,l-1,m-1)*wghti + x(i,j,k,l-1,m-1)*(1.-wghti)    !i wght
+
+      x1 = get_x(i-1,j-1,k,  l-1,m-1,si,sj,sk,sl,sm,x)
+      x2 = get_x(i,  j-1,k,  l-1,m-1,si,sj,sk,sl,sm,x)
+      x3 = get_x(i-1,j,  k,  l-1,m-1,si,sj,sk,sl,sm,x)
+      x4 = get_x(i,  j,  k,  l-1,m-1,si,sj,sk,sl,sm,x)
+
+      tmpi1 = x1*wghti + x2*(1.-wghti)!i wght
+      tmpi2 = x3*wghti + x4*(1.-wghti)    !i wght
 
       !j2 = i-wghted j at k2,l1,m1
       tmpj2 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
@@ -2660,8 +2688,14 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       !i1 = wght i at j1,k1,l2,m1
       !i2 = wght i at j2,k1,l2,m1
-      tmpi1 = x(i-1,j-1,k-1,l,m-1)*wghti + x(i,j-1,k-1,l,m-1)*(1.-wghti)     !i wght
-      tmpi2 = x(i-1,j,k-1,l,m-1)*wghti + x(i,j,k-1,l,m-1)*(1.-wghti)         !i wght
+
+      x1 = get_x(i-1,j-1,k-1,l,  m-1,si,sj,sk,sl,sm,x)
+      x2 = get_x(i,  j-1,k-1,l,  m-1,si,sj,sk,sl,sm,x)
+      x3 = get_x(i-1,j,  k-1,l,  m-1,si,sj,sk,sl,sm,x)
+      x4 = get_x(i,  j,  k-1,l,  m-1,si,sj,sk,sl,sm,x)
+
+      tmpi1 = x1*wghti + x2*(1.-wghti)     !i wght
+      tmpi2 = x3*wghti + x4*(1.-wghti)         !i wght
 
       !j1 = i-wghted j at k1,l2,m1
       tmpj1 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                 !j wght
@@ -2670,8 +2704,14 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       !i1 = wght i at j1,k2,l2,m1
       !i2 = wght i at j2,k2,l2,m1
-      tmpi1 = x(i-1,j-1,k,l,m-1)*wghti + x(i,j-1,k,l,m-1)*(1.-wghti)          !i wght
-      tmpi2 = x(i-1,j,k,l,m-1)*wghti + x(i,j,k,l,m-1)*(1.-wghti)              !i wght
+
+      x1 = get_x(i-1,j-1,k,  l,  m-1,si,sj,sk,sl,sm,x)
+      x2 = get_x(i,  j-1,k,  l,  m-1,si,sj,sk,sl,sm,x)
+      x3 = get_x(i-1,j,  k,  l,  m-1,si,sj,sk,sl,sm,x)
+      x4 = get_x(i,  j,  k,  l,  m-1,si,sj,sk,sl,sm,x)
+
+      tmpi1 = x1*wghti + x2*(1.-wghti)          !i wght
+      tmpi2 = x3*wghti + x4*(1.-wghti)              !i wght
 
       !j2 = i-wghted j at k2,l2,m1
       tmpj2 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
@@ -2690,8 +2730,14 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       !i1 = wght i at j1,k1,l1,m2
       !i2 = wght i at j2,k1,l1,m2
-      tmpi1 = x(i-1,j-1,k-1,l-1,m)*wghti + x(i,j-1,k-1,l-1,m)*(1.-wghti)      !i wght
-      tmpi2 = x(i-1,j,k-1,l-1,m)*wghti + x(i,j,k-1,l-1,m)*(1.-wghti)          !i wght
+
+      x1 = get_x(i-1,j-1,k-1,l-1,m,  si,sj,sk,sl,sm,x)
+      x2 = get_x(i,  j-1,k-1,l-1,m,  si,sj,sk,sl,sm,x)
+      x3 = get_x(i-1,j,  k-1,l-1,m,  si,sj,sk,sl,sm,x)
+      x4 = get_x(i,  j,  k-1,l-1,m,  si,sj,sk,sl,sm,x)
+
+      tmpi1 = x1*wghti + x2*(1.-wghti)      !i wght
+      tmpi2 = x3*wghti + x4*(1.-wghti)          !i wght
 
       !j1 = i-wghted j at k1,l1,m2
       tmpj1 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
@@ -2700,8 +2746,14 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       !i1 = wght i at j1,k2,l1,m2
       !i2 = wght i at j2,k2,l1,m2
-      tmpi1 = x(i-1,j-1,k,l-1,m)*wghti + x(i,j-1,k,l-1,m)*(1.-wghti)          !i wght
-      tmpi2 = x(i-1,j,k,l-1,m)*wghti + x(i,j,k,l-1,m)*(1.-wghti)              !i wght
+
+      x1 = get_x(i-1,j-1,k,  l-1,m,  si,sj,sk,sl,sm,x)
+      x2 = get_x(i,  j-1,k,  l-1,m,  si,sj,sk,sl,sm,x)
+      x3 = get_x(i-1,j,  k,  l-1,m,  si,sj,sk,sl,sm,x)
+      x4 = get_x(i,  j,  k,  l-1,m,  si,sj,sk,sl,sm,x)
+
+      tmpi1 = x1*wghti + x2*(1.-wghti)          !i wght
+      tmpi2 = x3*wghti + x4*(1.-wghti)              !i wght
 
       !j2 = i-wghted j at k2,l1,m2
       tmpj2 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
@@ -2715,8 +2767,14 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       !i1 = wght i at j1,k1,l2,m2
       !i2 = wght i at j2,k1,l2,m2
-      tmpi1 = x(i-1,j-1,k-1,l,m)*wghti + x(i,j-1,k-1,l,m)*(1.-wghti)          !i wght
-      tmpi2 = x(i-1,j,k-1,l,m)*wghti + x(i,j,k-1,l,m)*(1.-wghti)              !i wght
+
+      x1 = get_x(i-1,j-1,k-1,l,  m,  si,sj,sk,sl,sm,x)
+      x2 = get_x(i,  j-1,k-1,l,  m,  si,sj,sk,sl,sm,x)
+      x3 = get_x(i-1,j,  k-1,l,  m,  si,sj,sk,sl,sm,x)
+      x4 = get_x(i,  j,  k-1,l,  m,  si,sj,sk,sl,sm,x)
+
+      tmpi1 = x1*wghti + x2*(1.-wghti)          !i wght
+      tmpi2 = x3*wghti + x4*(1.-wghti)              !i wght
 
       !j1 = i-wghted j at k1,l2,m2
       tmpj1 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
@@ -2725,8 +2783,14 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
       !i1 = wght i at j1,k2,l2,m2
       !i2 = wght i at j2,k2,l2,m2
-      tmpi1 = x(i-1,j-1,k,l,m)*wghti + x(i,j-1,k,l,m)*(1.-wghti)              !i wght
-      tmpi2 = x(i-1,j,k,l,m)*wghti + x(i,j,k,l,m)*(1.-wghti)                  !i wght
+
+      x1 = get_x(i-1,j-1,k,  l,  m,  si,sj,sk,sl,sm,x)
+      x2 = get_x(i,  j-1,k,  l,  m,  si,sj,sk,sl,sm,x)
+      x3 = get_x(i-1,j,  k,  l,  m,  si,sj,sk,sl,sm,x)
+      x4 = get_x(i,  j,  k,  l,  m,  si,sj,sk,sl,sm,x)
+
+      tmpi1 = x1*wghti + x2*(1.-wghti)              !i wght
+      tmpi2 = x3*wghti + x4*(1.-wghti)                  !i wght
 
       !j2 = i-wghted j at k2,l2,m2
       tmpj2 = tmpi1*wghtj + tmpi2*(1.-wghtj)                                  !j wght
@@ -2748,6 +2812,19 @@ MODULE MODULE_MP_SULIAHARRINGTON
 
     END SUBROUTINE WGHTED_LOOKUP5D
 
+
+      real function get_x(i,j,k,l,m,si,sj,sk,sl,sm,x)
+      implicit none
+      integer i,j,k,l,m,si,sj,sk,sl,sm
+      real x(si,sj,sk,sl,sm)
+      
+      if(i.eq.0.or.j.eq.0.or.k.eq.0.or.l.eq.0.or.m.eq.0)then
+         get_x = 0
+      else 
+         get_x = x(i,j,k,l,m)
+      end if
+      return 
+      end function get_x
 
 !------------------------------------------------------------------
 !     FUNCTION FINDGTP

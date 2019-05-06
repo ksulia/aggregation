@@ -1,12 +1,12 @@
       program main
 
         integer :: i,j,k,l,m
-        !integer, parameter :: ii = 5, jj = 4, kk = 4, ll = 8, mm = 9
-        integer, parameter :: ii = 1, jj = 1, kk = 1, ll = 1, mm = 9
+        integer, parameter :: ii = 5, jj = 4, kk = 4, ll = 8, mm = 9
+        !integer, parameter :: ii = 1, jj = 1, kk = 1, ll = 1, mm = 9
         real :: ni(ii),an(jj),cn(kk),nu(ll),rho(mm)
         real :: coll(ii,jj,kk,ll,mm),ncoll(ii,jj,kk,ll,mm)
 
-        open(8,file='COLL.bin',form='unformatted')
+        open(8,file='COLLV2.bin',form='unformatted')
         
         READ(8) (ni(i),i=1,ii)
         READ(8) (an(j),j=1,jj)

@@ -1,7 +1,7 @@
       program main
 
         integer :: i,j,k
-        integer, parameter :: ii = 20, jj = 27, kk = 3
+        integer, parameter :: ii = 50, jj = 28, kk = 3
         real :: phi(ii),r(jj)
         real :: an(ii,jj),cn(ii,jj),a(ii,jj),d(ii,jj)
         real var1(ii,jj+1),var2(ii,jj+1),var3(ii,jj+1),var4(ii,jj+1)
@@ -17,12 +17,12 @@
            end if
         end do
 
-        open(9,file='a_avg_lookup_dd.txt')
+        open(9,file='a_avg_lookup_new.txt')
         open(10,file='a_n_lookup_dd.txt')
         open(11,file='c_n_lookup_dd.txt')
         open(12,file='dd_lookup.txt')
         do i=1,ii
-           read(9,*) (var1(i,j),j=1,jj+1)
+           read(9,*)  (var1(i,j),j=1,jj+1)
            read(10,*) (var2(i,j),j=1,jj+1)
            read(11,*) (var3(i,j),j=1,jj+1)
            read(12,*) (var4(i,j),j=1,jj+1)
@@ -42,7 +42,7 @@
            enddo
         enddo
         
-        OPEN(8,file='ACOLL.bin',form='unformatted')
+        OPEN(8,file='ACOLLdd.bin',form='unformatted')
         WRITE(8) (phi(i),i=1,ii)
         WRITE(8) (r(j),j=1,jj)
         WRITE(8) ((a(i,j),i=1,ii),j=1,jj)
@@ -58,7 +58,7 @@
         cn=0
         d=0
 
-        OPEN(8,file='ACOLL.bin',form='unformatted')
+        OPEN(8,file='ACOLLdd.bin',form='unformatted')
         READ(8) (phi(i),i=1,ii)
         READ(8) (r(j),j=1,jj)
         READ(8) ((a(i,j),i=1,ii),j=1,jj)

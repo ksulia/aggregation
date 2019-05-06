@@ -2,13 +2,12 @@
 
         integer :: i,j,k,l,m
         integer, parameter :: ii = 5, jj = 4, kk = 4, ll = 8, mm = 9
-        !integer, parameter :: ii = 1, jj = 1, kk = 3, ll = 8, mm = 9
         real :: ni(ii),an(jj),cn(kk),nu(ll),rho(mm)
         real :: coll(ii,jj,kk,ll,mm),ncoll(ii,jj,kk,ll,mm)
         real :: n(ii),a(jj),c(kk),nn(ll),r(mm)
         real :: co(ii,jj,kk,ll,mm),nco(ii,jj,kk,ll,mm)
 
-        open(9,file='COLLV2.dat')
+        open(9,file='COLLV2.dat') !check date on this file.  see comment below for possible correction...
         do i=1,ii
            do j=1,jj
               do k=1,kk
@@ -22,18 +21,24 @@
         enddo
         close(9)
         
-        open(8,file='COLL.bin',form='unformatted')
+        open(8,file='COLLV2.bin',form='unformatted')
 
-        WRITE(8) (ni(i),i=1,ii)
+        WRITE(8) (ni(i)*10**6,i=1,ii)
         WRITE(8) (an(j),j=1,jj)
         WRITE(8) (cn(k),k=1,kk)
         WRITE(8) (nu(l),l=1,ll)
         WRITE(8) (rho(m),m=1,mm)
+
         WRITE(8) (((((coll(i,j,k,l,m),i=1,ii),j=1,jj),k=1,kk),l=1,ll),m=1,mm)
         WRITE(8) (((((ncoll(i,j,k,l,m),i=1,ii),j=1,jj),k=1,kk),l=1,ll),m=1,mm)
+        !!!if COLLV2.dat is used and dates back to Oct 4 2018, must multiply coll and ncoll by 10^2 to correct old error
+        !!uncomment these two lines...
+        !WRITE(8) (((((coll(i,j,k,l,m)*10**12,i=1,ii),j=1,jj),k=1,kk),l=1,ll),m=1,mm)
+        !WRITE(8) (((((ncoll(i,j,k,l,m)*10**12,i=1,ii),j=1,jj),k=1,kk),l=1,ll),m=1,mm)
         CLOSE(8)
 
-        open(8,file='COLL.bin',form='unformatted')
+
+        open(8,file='COLLV2.bin',form='unformatted')
         READ(8) (n(i),i=1,ii)
         READ(8) (a(j),j=1,jj)
         READ(8) (c(k),k=1,kk)

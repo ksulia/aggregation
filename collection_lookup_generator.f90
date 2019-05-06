@@ -21,7 +21,7 @@ PROGRAM COLLECTION_LOOKUP_GENERATOR
 
      OPEN(1,FILE="COLL.dat")
      DO i = 1,ii,1
-        ni(i) = 10.**(i-1)   /1000. !L-1 --> m-3
+        ni(i) = 10.**(i-1)   *1000. !L-1 --> m-3
 
         DO j = 1,jj,1
            an(j) = 10.**(j-1) *1.e-6 !microns --> m
@@ -91,8 +91,8 @@ PROGRAM COLLECTION_LOOKUP_GENERATOR
 
                     END DO!a1(n)
 
-                    coll(i,j,k,l,m) = sum(sum(sum(sum(mrate,dim=4)*dr,dim=3)*dr,dim=2)*dr,dim=1)*dr
-                    ncoll(i,j,k,l,m) = sum(sum(sum(sum(nrate,dim=4)*dr,dim=3)*dr,dim=2)*dr,dim=1)*dr
+                    coll(i,j,k,l,m) = sum(sum(sum(sum(mrate,dim=4)*dr,dim=3)*dr,dim=2)*dr,dim=1)*dr  !kg/m3/s
+                    ncoll(i,j,k,l,m) = sum(sum(sum(sum(nrate,dim=4)*dr,dim=3)*dr,dim=2)*dr,dim=1)*dr !#/m3/s
                     WRITE(1,*) ni(i), an(j), cn(k), nu(l), rho(m), coll(i,j,k,l,m),ncoll(i,j,k,l,m)
                  END DO!rho(m)
 

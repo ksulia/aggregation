@@ -31,7 +31,7 @@ PROGRAM COLLECTION_LOOKUP_GENERATOR_BINARY
      END DO
      
      DO i = 1,ii,1
-        ni(i) = 10.**(i-1)   /1000. !L-1 --> m-3 [1,10,100,1000,10000 L-1]
+        ni(i) = 10.**(i-1)   *1000. !L-1 --> m-3 [1,10,100,1000,10000 L-1]
 
         DO j = 1,jj,1
            an(j) = 10.**(j-1) *1.e-6 !microns --> m

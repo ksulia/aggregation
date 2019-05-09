@@ -1,7 +1,7 @@
       program main
 
         integer :: i,j,k,l,m
-        integer, parameter :: ii = 5, jj = 4, kk = 4, ll = 8, mm = 9
+        integer, parameter :: ii = 5, jj = 6, kk = 6, ll = 8, mm = 9
         real :: ni(ii),an(jj),cn(kk),nu(ll),rho(mm)
         real :: coll(ii,jj,kk,ll,mm),ncoll(ii,jj,kk,ll,mm)
         real :: n(ii),a(jj),c(kk),nn(ll),r(mm)

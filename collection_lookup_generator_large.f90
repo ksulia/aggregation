@@ -5,13 +5,14 @@ PROGRAM COLLECTION_LOOKUP_GENERATOR_LARGE
 
      integer :: i, j, k, l, m, n, o, p, q, c
      integer, parameter :: E = 1.0, nsum = 92
-     real, parameter :: dr = 10.e-6
-     real r(nsum)
+     !real, parameter :: dr = 10.e-6
+     real r(nsum), dr(nsum)
      integer, parameter :: ii=5, jj=6, kk=jj, ll=8, mm=9, nn=nsum, oo=nsum, pp=nsum, qq=nsum
      real gammln, pi, gam, maxx, maxy, area, vol1, vol2, n1, n2, v1, v2
-     real ncheck(nn,oo), mrate(nn,oo,pp,qq), nrate(nn,oo,pp,qq)
-     real coll(ii,jj,kk,ll,mm), ncoll(ii,jj,kk,ll,mm), ni(ii), an(jj), cn(kk), nu(ll), rho(mm), a1(nn), c1(oo), a2(pp), c2(qq) 
+     real ncheck(nn,oo), mrate(qq,pp,oo,nn), nrate(qq,pp,oo,nn)
+     real coll, ncoll, ni(ii), an(jj), cn(kk), nu(ll), rho(mm), a1(nn), c1(oo), a2(pp), c2(qq) 
      real n3(pp)
+     real start, finish
 
      integer ncid,vid,nid,aid,cid,nuid,rhoid
      character(7) :: fname
@@ -21,15 +22,20 @@ PROGRAM COLLECTION_LOOKUP_GENERATOR_LARGE
      r(1) = 0.5
      r(2) = 1.0
      r(3) = 1.5
+     dr(1) = 0.5e-6
+     dr(2) = (r(2) - r(1))*1.e-6
+     dr(3) = (r(3) - r(2))*1.e-6
      c = 0
      DO n = 4, nn, 1
         c = c + 1
-        r(n) = r(n-1) + 5.*10**floor((c-18.)/18.)
+        r(n) = r(n-1) + 5.*10.**floor((c-18.)/18.)
+        dr(n) = (r(n) - r(n-1))*1.e-6
+        !print*,r(n),dr(n)
      END DO
      !r = [0.5,1.0,1.5-->10,15,20,25-->100,150,200,250-->1000,---->100000] microns
 
 
-     OPEN(1,FILE="COLLV3.dat")
+     OPEN(1,FILE="COLLV4.dat")
      !$OMP PARALLEL DO
      DO i = 1,ii,1
         ni(i) = 10.**(i-1)   *1000. !L-1 --> m-3 [1,10,100,1000,10000 /L]
@@ -47,12 +53,12 @@ PROGRAM COLLECTION_LOOKUP_GENERATOR_LARGE
                     rho(m) = real(m)*100.
 
                     !print*,ni(i),an(j),cn(k),nu(l),rho(m)
-                    coll(i,j,k,l,m) = 0
-                    ncoll(i,j,k,l,m) = 0
+                    coll = 0
+                    ncoll = 0
 
                     !!These inner loops should have a very fine resolution to make sure we are 
                     !!integrating over "all possible" sizes
-
+                    call cpu_time(start)
                     DO n = 1,nn,1                  
                        a1(n) = r(n)  *1.e-6
 
@@ -89,9 +95,10 @@ PROGRAM COLLECTION_LOOKUP_GENERATOR_LARGE
                                if(2.*maxy .ge. 839) v2 = 62.29*(2.*maxy)**0.1098
                                v2 = v2/100.
 
-                               mrate(n,o,p,q) = pi*rho(m)*(vol1+vol2)*area*abs(v1-v2)*n1*n2*E
-                               nrate(n,o,p,q) = pi*area*abs(v1-v2)*n1*n2*E
+                               mrate(q,p,o,n) = pi*rho(m)*(vol1+vol2)*area*abs(v1-v2)*n1*n2*E*dr(n)*dr(o)*dr(q)*dr(p)
+                               nrate(q,p,o,n) = pi*area*abs(v1-v2)*n1*n2*E*dr(n)*dr(o)*dr(q)*dr(p)
                                ncheck(p,q) = n2
+                !               print*,dr(n),dr(o),dr(q),dr(p),dr(n)*dr(o)*dr(q)*dr(p)
                              END DO!c2(q)
 
                           END DO!a2(p)
@@ -100,10 +107,11 @@ PROGRAM COLLECTION_LOOKUP_GENERATOR_LARGE
 
                     END DO!a1(n)
 
-                    coll(i,j,k,l,m) = sum(sum(sum(sum(mrate,dim=4)*dr,dim=3)*dr,dim=2)*dr,dim=1)*dr  !kg/m3/s
-                    ncoll(i,j,k,l,m) = sum(sum(sum(sum(nrate,dim=4)*dr,dim=3)*dr,dim=2)*dr,dim=1)*dr !#/m3/s
-                    WRITE(*,*) ni(i), an(j), cn(k), nu(l), rho(m), coll(i,j,k,l,m),ncoll(i,j,k,l,m)
-                    WRITE(1,*) ni(i), an(j), cn(k), nu(l), rho(m), coll(i,j,k,l,m),ncoll(i,j,k,l,m)
+                    coll = sum(sum(sum(sum(mrate,dim=4),dim=3),dim=2),dim=1)  !kg/m3/s
+                    ncoll = sum(sum(sum(sum(nrate,dim=4),dim=3),dim=2),dim=1) !#/m3/s
+                    call cpu_time(finish)
+                    WRITE(*,*) finish-start," s  ", ni(i), an(j), cn(k), nu(l), rho(m), coll,ncoll
+                    WRITE(1,*) ni(i), an(j), cn(k), nu(l), rho(m), coll, ncoll
                  END DO!rho(m)
 
               END DO!nu(l)

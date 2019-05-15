@@ -3,6 +3,8 @@ PROGRAM COLLECTION_LOOKUP_GENERATOR
 
   IMPLICIT NONE
 
+  !!COMPILE WITH THE FOLLOWING COMMAND: gfortran -o coll.exe -fdefault-real-8 -O3 -fopenmp collection_lookup_generator_test.f90
+
 
      integer :: i, j, k, l, m, n, o, p, q
      integer, parameter :: E = 1.0, nsum = 100

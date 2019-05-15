@@ -4,8 +4,8 @@ PROGRAM COLLECTION_LOOKUP_GENERATOR_LARGE
 
 
      integer :: i, j, k, l, m, n, o, p, q, c
-     integer, parameter :: E = 1.0, nsum = 92
-     !real, parameter :: dr = 10.e-6
+     integer, parameter :: E = 1.0, nsum = 80
+     real, parameter :: drr = 10.e-6
      real r(nsum), dr(nsum)
      integer, parameter :: ii=5, jj=6, kk=jj, ll=8, mm=9, nn=nsum, oo=nsum, pp=nsum, qq=nsum
      real gammln, pi, gam, maxx, maxy, area, vol1, vol2, n1, n2, v1, v2
@@ -45,7 +45,6 @@ PROGRAM COLLECTION_LOOKUP_GENERATOR_LARGE
      END DO
 
      OPEN(1,FILE="COLLV4.dat")
-     !$OMP PARALLEL DO
      DO i = 1,ii,1
         ni(i) = 10.**(i-1)   *1000. !L-1 --> m-3 [1,10,100,1000,10000 /L]
 
@@ -58,7 +57,7 @@ PROGRAM COLLECTION_LOOKUP_GENERATOR_LARGE
               DO l = 1,ll,1
                  nu(l) = real(l)
                  gam = exp(gammln(nu(l)))
-
+                 !$OMP PARALLEL DO
                  DO m = 1,mm,1
                     rho(m) = real(m)*100.
 
@@ -113,6 +112,7 @@ PROGRAM COLLECTION_LOOKUP_GENERATOR_LARGE
                     WRITE(*,*) finish-start," s  ", ni(i), an(j), cn(k), nu(l), rho(m), coll,ncoll
                     WRITE(1,*) ni(i), an(j), cn(k), nu(l), rho(m), coll, ncoll
                  END DO!rho(m)
+                !$OMP END PARALLEL DO
 
               END DO!nu(l)
 
@@ -121,7 +121,6 @@ PROGRAM COLLECTION_LOOKUP_GENERATOR_LARGE
         END DO!an(j)
 
      END DO!ni(i)
-     !$OMP END PARALLEL DO
      CLOSE(1)
   
 !     coll = coll*pi  !!divide by air density in model!!
